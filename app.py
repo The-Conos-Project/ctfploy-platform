@@ -27,7 +27,6 @@ def load_data():
         return {"challenges": [], "access_codes": [], "instances": [], "users": []}
     with open(DATA_FILE) as f:
         data = json.load(f)
-        # ensure keys exist
         for key in ["challenges", "access_codes", "instances", "users"]:
             if key not in data:
                 data[key] = []
@@ -321,19 +320,18 @@ def logout():
     session.clear()
     return redirect(url_for("sign_in"))
 
-# ---------- USER DASHBOARD (code-based) ----------
+# ---------- USER DASHBOARD (code-based, with success/error messages) ----------
 @app.route("/dashboard")
 @login_required
 def dashboard():
     data = load_data()
     user = get_user_by_id(session["user_id"])
-    # Get challenges associated with codes the user has entered
     user_challenges = []
     for code in data["access_codes"]:
         if code["code"] in user.get("used_codes", []):
             for cid in code["challenges"]:
                 ch = next((c for c in data["challenges"] if c["id"] == cid), None)
-                if ch:
+                if ch and ch["build_status"] == "success":
                     user_challenges.append(ch)
     instances = [i for i in data["instances"] if i["user_id"] == user["id"] and i["status"] == "running"]
     return render_template_string(STYLE + """
@@ -342,13 +340,19 @@ def dashboard():
             <div class="card" style="text-align:left;">
                 <h2>Welcome, {{ user.username }}</h2>
                 <a href="/logout"><button style="float:right;">Logout</button></a>
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}
+                    {% for category, message in messages %}
+                      <p style="color:{{ 'lime' if category == 'success' else 'red' }};">{{ message }}</p>
+                    {% endfor %}
+                  {% endif %}
+                {% endwith %}
                 <div style="margin-top:20px;">
                     <h3>Enter Access Code</h3>
                     <form method="post" action="/user/redeem-code">
                         <input name="code" placeholder="Access Code" required>
                         <button type="submit">Unlock Challenges</button>
                     </form>
-                    {% if error %}<p style="color:red;">{{ error }}</p>{% endif %}
                 </div>
                 {% if user_challenges %}
                 <div style="margin-top:30px;">
@@ -357,11 +361,7 @@ def dashboard():
                     {% for ch in user_challenges %}
                         <li>
                             <strong>{{ ch.display_name }}</strong>
-                            {% if ch.build_status == "success" %}
-                                <span class="status-badge status-ready">Ready</span>
-                            {% else %}
-                                <span class="status-badge status-failed">Unavailable</span>
-                            {% endif %}
+                            <span class="status-badge status-ready">Ready</span>
                             {% set inst = get_instance(user.id, ch.id) %}
                             {% if inst %}
                                 (port {{ inst.host_port }} – <a href="/instance/{{ inst.id }}">View</a>)
@@ -376,7 +376,7 @@ def dashboard():
             </div>
         </div>
     </div>
-    """, user=user, user_challenges=user_challenges, error=request.args.get("error"),
+    """, user=user, user_challenges=user_challenges,
        get_instance=lambda uid, cid: next((i for i in instances if i["user_id"] == uid and i["challenge_id"] == cid), None))
 
 @app.route("/user/redeem-code", methods=["POST"])
@@ -386,11 +386,18 @@ def redeem_code():
     data = load_data()
     code_entry = next((c for c in data["access_codes"] if c["code"] == code), None)
     if not code_entry:
-        return redirect(url_for("dashboard", error="Invalid code"))
+        flash("Invalid code", "error")
+        return redirect(url_for("dashboard"))
     user = get_user_by_id(session["user_id"])
-    if code not in user.get("used_codes", []):
-        user.setdefault("used_codes", []).append(code)
-        save_data(data)
+    if code in user.get("used_codes", []):
+        flash("You have already used this code.", "error")
+        return redirect(url_for("dashboard"))
+    user.setdefault("used_codes", []).append(code)
+    username = user["username"]
+    if username not in code_entry.get("used_by", []):
+        code_entry.setdefault("used_by", []).append(username)
+    save_data(data)
+    flash("Code unlocked successfully!", "success")
     return redirect(url_for("dashboard"))
 
 @app.route("/start/<challenge_id>")
@@ -400,7 +407,7 @@ def start_challenge(challenge_id):
     user = get_user_by_id(session["user_id"])
     challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "success"), None)
     if not challenge:
-        return redirect(url_for("dashboard", error="Challenge not found"))
+        return redirect(url_for("dashboard", error="Challenge not found or not ready"))
     # Verify user has unlocked this challenge via a code
     allowed = False
     for code in data["access_codes"]:
@@ -424,6 +431,7 @@ def view_instance(instance_id):
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
     host = request.host.split(":")[0]
     msg = request.args.get("msg")
+    hints = challenge.get("hints", [])
     return render_template_string(STYLE + """
     <div class="centered-page">
         <div class="centered-container">
@@ -437,6 +445,16 @@ def view_instance(instance_id):
                     <p>URL: <a href="http://{{ host }}:{{ inst.host_port }}">http://{{ host }}:{{ inst.host_port }}</a></p>
                 {% elif inst.connection_type == 'nc' %}
                     <p>Netcat: <code>nc {{ host }} {{ inst.host_port }}</code></p>
+                {% endif %}
+                {% if hints %}
+                <div style="margin-top:10px;">
+                    <strong>Hints:</strong>
+                    <ul>
+                    {% for hint in hints %}
+                        <li>{{ hint }}</li>
+                    {% endfor %}
+                    </ul>
+                </div>
                 {% endif %}
                 <p>Expires: <span id="countdown">{{ inst.expires_at }}</span></p>
                 <a href="/terminate/{{ inst.id }}"><button>Terminate</button></a>
@@ -464,7 +482,7 @@ def view_instance(instance_id):
             }
         }, 1000);
     </script>
-    """, ch=challenge, inst=instance, host=host, msg=msg)
+    """, ch=challenge, inst=instance, host=host, msg=msg, hints=hints)
 
 @app.route("/terminate/<instance_id>")
 @login_required
@@ -488,7 +506,7 @@ def submit_flag(instance_id):
     msg = "✅ Correct!" if correct and submitted == correct else "❌ Incorrect"
     return redirect(url_for("view_instance", instance_id=instance_id, msg=msg))
 
-# ---------- ADMIN ----------
+# ---------- ADMIN (with used_by display) ----------
 @app.route("/admin/sign-in", methods=["GET", "POST"])
 def admin_sign_in():
     if request.method == "POST":
@@ -653,7 +671,6 @@ def import_url():
             tar.extractall(build_dir)
         os.unlink(filepath)
 
-        # Look for ctfploy.json
         metadata_path = os.path.join(build_dir, "ctfploy.json")
         meta = {}
         if os.path.exists(metadata_path):
@@ -711,7 +728,6 @@ def admin_upload():
     with tarfile.open(filepath, "r:gz") as tar:
         tar.extractall(build_dir)
 
-    # Check for ctfploy.json to override manual inputs
     metadata_path = os.path.join(build_dir, "ctfploy.json")
     if os.path.exists(metadata_path):
         with open(metadata_path) as f:
@@ -749,7 +765,6 @@ def build_from_store():
     filepath = os.path.join(CHALLENGES_STORE, filename)
     if not os.path.exists(filepath):
         return "File not found", 400
-    # Same metadata logic as import, but from local file
     build_dir = f"/tmp/ctf_build_{int(time.time())}"
     os.makedirs(build_dir, exist_ok=True)
     with tarfile.open(filepath, "r:gz") as tar:
@@ -833,7 +848,7 @@ def delete_challenge(challenge_id):
     save_data(data)
     return redirect(url_for("admin_challenges"))
 
-# Access codes management
+# ---------- ACCESS CODES (show used_by) ----------
 @app.route("/admin/codes", methods=["GET"])
 @admin_required
 def admin_codes():
@@ -862,7 +877,12 @@ def admin_codes():
                     <ul class="challenge-list">
                     {% for code in access_codes %}
                         <li>
-                            <strong>{{ code.code }}</strong> (used by {{ code.used_by|length }} user(s))
+                            <strong>{{ code.code }}</strong>
+                            {% if code.used_by %}
+                            <span style="color:#aaa;">(used by: {{ ', '.join(code.used_by) }})</span>
+                            {% else %}
+                            <span style="color:#aaa;">(unused)</span>
+                            {% endif %}
                             <ul>
                             {% for cid in code.challenges %}
                                 {% set ch = get_challenge(cid) %}
