@@ -2,7 +2,7 @@
 """
 Conos CTFploy Platform – Flask Application
 """
-import os, json, time, random, uuid, threading, queue, tarfile, hashlib, subprocess
+import os, json, time, random, uuid, threading, queue, tarfile, hashlib, subprocess, tempfile, urllib.request
 from datetime import datetime, timedelta
 from flask import Flask, request, redirect, render_template_string, session, url_for, Response, flash
 import docker
@@ -13,7 +13,7 @@ INSTANCE_TIMEOUT = int(os.environ.get("INSTANCE_TIMEOUT", 30 * 60))
 MAX_CONCURRENT_PER_USER = int(os.environ.get("MAX_CONCURRENT_PER_USER", 3))
 DATA_FILE = "/data/data.json"
 DOCKER_NETWORK = "ctf_net"
-CHALLENGES_STORE = "/data/challenges_store"   # place pre‑built tar.gz files here
+CHALLENGES_STORE = "/data/challenges_store"
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -21,12 +21,17 @@ app.secret_key = SECRET_KEY
 docker_client = docker.from_env()
 build_logs = {}
 
-# ---------- DATA STORAGE ----------
+# ---------- DATA STORAGE (JSON) ----------
 def load_data():
     if not os.path.exists(DATA_FILE):
-        return {"challenges": [], "codes": [], "instances": [], "users": [], "groups": []}
+        return {"challenges": [], "access_codes": [], "instances": [], "users": []}
     with open(DATA_FILE) as f:
-        return json.load(f)
+        data = json.load(f)
+        # ensure keys exist
+        for key in ["challenges", "access_codes", "instances", "users"]:
+            if key not in data:
+                data[key] = []
+        return data
 
 def save_data(data):
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
@@ -158,50 +163,82 @@ def auto_terminate(instance_id, delay):
     with app.app_context():
         terminate_instance(instance_id)
 
-# ---------- STYLES (centered) ----------
+# ---------- CSS (centered, sidebar admin) ----------
 STYLE = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&display=swap');
 @import url('https://cdn.jsdelivr.net/npm/devicons@1.8.0/css/devicons.min.css');
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: 'Space Grotesk', sans-serif; background:#0a0a0a; color:#e0e0e0; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
-.centered-container { width: 100%; max-width: 960px; }
-.card { background:#1a1a1a; border:1px solid #333; border-radius:12px; padding:30px; margin-bottom:25px; text-align: center; }
-.card h2, .card h3 { margin-bottom: 20px; }
-input, select, button { background:#222; color:#fff; border:1px solid #444; padding:12px 16px; margin:8px 0; border-radius:6px; font-family:inherit; font-size:16px; width: 100%; box-sizing: border-box; }
-button { background:#fff; color:#000; font-weight:600; cursor:pointer; width: auto; padding:12px 24px; }
-button:hover { background:#ddd; }
+body { font-family: 'Space Grotesk', sans-serif; background:#0a0a0a; color:#e0e0e0; }
 a { color:#aaa; text-decoration:none; }
 a:hover { color:#fff; }
 code { background:#333; padding:2px 6px; border-radius:4px; }
-.log-window { background:#000; color:#0f0; padding:10px; border-radius:6px; height:200px; overflow-y:auto; font-family:monospace; font-size:12px; margin:10px 0; text-align:left; }
-.flag-input { display:flex; gap:10px; justify-content: center; }
+
+/* Admin layout */
+.admin-layout { display:flex; min-height:100vh; }
+.sidebar { width:250px; background:#1a1a1a; border-right:1px solid #333; padding:20px; }
+.sidebar h3 { color:#fff; margin-bottom:20px; }
+.sidebar ul { list-style:none; }
+.sidebar li { margin-bottom:12px; }
+.sidebar a { color:#aaa; text-decoration:none; display:flex; align-items:center; gap:8px; }
+.sidebar a:hover { color:#fff; }
+.main-content { flex:1; padding:40px; display:flex; justify-content:center; }
+.main-content .content-wrapper { width:100%; max-width:800px; }
+
+/* Cards for admin & user */
+.card { background:#1a1a1a; border:1px solid #333; border-radius:12px; padding:25px; margin-bottom:25px; }
+.card h2, .card h3 { margin-bottom:20px; font-weight:400; }
+input, select, button { background:#222; color:#fff; border:1px solid #444; padding:10px 14px; margin:6px 0; border-radius:6px; font-family:inherit; font-size:15px; width:100%; box-sizing:border-box; }
+button { background:#fff; color:#000; font-weight:600; cursor:pointer; width:auto; padding:10px 20px; }
+button:hover { background:#ddd; }
+.flag-input { display:flex; gap:10px; }
 .flag-input input { flex:1; }
-nav { display:flex; justify-content: center; gap:30px; margin-bottom:30px; }
 .status-badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px; }
 .status-ready { background:#2ecc71; color:#000; }
 .status-failed { background:#e74c3c; color:#fff; }
-.devicons { font-size:20px; margin-right:8px; vertical-align: middle; }
-.inline-form { display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; }
-.inline-form input, .inline-form select { width: auto; }
-.challenge-list { list-style: none; padding: 0; text-align: left; }
-.challenge-list li { margin: 10px 0; }
-.button-group { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 15px; }
-.landing-title { font-size: 3rem; font-weight: 600; margin-bottom: 20px; }
-.landing-sub { font-size: 1.2rem; opacity: 0.7; margin-bottom: 30px; }
+.log-window { background:#000; color:#0f0; padding:10px; border-radius:6px; height:200px; overflow-y:auto; font-family:monospace; font-size:12px; margin:10px 0; text-align:left; }
+.challenge-list { list-style:none; padding:0; }
+.challenge-list li { margin:8px 0; }
+
+/* Centered user pages */
+.centered-page { display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px; }
+.centered-container { width:100%; max-width:650px; }
+
+.landing-title { font-size:3rem; font-weight:600; margin-bottom:20px; }
+.landing-sub { font-size:1.2rem; opacity:0.7; margin-bottom:30px; }
 </style>
 """
 
-# ---------- AUTH ROUTES (new URLs) ----------
+# ---------- AUTH ----------
+def login_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("sign_in"))
+        return f(*args, **kwargs)
+    return decorated
+
+def admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("admin"):
+            return redirect(url_for("admin_sign_in"))
+        return f(*args, **kwargs)
+    return decorated
+
+# ---------- ROUTES ----------
 @app.route("/")
 def index():
-    # Home page for everyone
     return render_template_string(STYLE + """
-    <div class="centered-container">
-        <div class="card" style="margin-top: 10vh;">
-            <h1 class="landing-title">Conos CTFploy</h1>
-            <p class="landing-sub">Self‑hosted CTF platform up and running.</p>
-            <a href="/sign-in"><button style="font-size:1.2rem;">Get Started</button></a>
+    <div class="centered-page">
+        <div class="centered-container">
+            <div class="card" style="text-align:center;">
+                <h1 class="landing-title">Conos CTFploy</h1>
+                <p class="landing-sub">Self‑hosted CTF platform. Deploy, manage, and solve challenges.</p>
+                <a href="/sign-in"><button style="font-size:1.1rem;">Get Started</button></a>
+            </div>
         </div>
     </div>
     """)
@@ -215,22 +252,35 @@ def sign_in():
         if user and user["password_hash"] == hash_password(password):
             session["user_id"] = user["id"]
             session["username"] = user["username"]
-            return redirect(url_for("user_dashboard"))
+            return redirect(url_for("dashboard"))
         return render_template_string(STYLE + """
-        <div class="centered-container">
-            <div class="card"><h2>Sign In</h2><p style="color:red">Invalid credentials</p>
-            <form method="post"><input name="username" placeholder="Username" required><br>
-            <input type="password" name="password" placeholder="Password" required><br>
-            <button type="submit">Sign In</button></form>
-            <p style="margin-top:15px;">No account? <a href="/register">Register</a></p></div>
+        <div class="centered-page">
+            <div class="centered-container">
+                <div class="card">
+                    <h2>Sign In</h2>
+                    <p style="color:red;">Invalid credentials</p>
+                    <form method="post">
+                        <input name="username" placeholder="Username" required><br>
+                        <input type="password" name="password" placeholder="Password" required><br>
+                        <button type="submit">Sign In</button>
+                    </form>
+                    <p style="margin-top:15px;">No account? <a href="/register">Register</a></p>
+                </div>
+            </div>
         </div>""")
     return render_template_string(STYLE + """
-    <div class="centered-container">
-        <div class="card"><h2>Sign In</h2>
-        <form method="post"><input name="username" placeholder="Username" required><br>
-        <input type="password" name="password" placeholder="Password" required><br>
-        <button type="submit">Sign In</button></form>
-        <p style="margin-top:15px;">No account? <a href="/register">Register</a></p></div>
+    <div class="centered-page">
+        <div class="centered-container">
+            <div class="card">
+                <h2>Sign In</h2>
+                <form method="post">
+                    <input name="username" placeholder="Username" required><br>
+                    <input type="password" name="password" placeholder="Password" required><br>
+                    <button type="submit">Sign In</button>
+                </form>
+                <p style="margin-top:15px;">No account? <a href="/register">Register</a></p>
+            </div>
+        </div>
     </div>""")
 
 @app.route("/register", methods=["GET", "POST"])
@@ -239,135 +289,167 @@ def register():
         username = request.form["username"].strip()
         password = request.form["password"].strip()
         if get_user(username):
-            return render_template_string(STYLE + """<div class="centered-container"><div class="card"><h2>Register</h2><p style="color:red">User already exists</p><form method="post"><input name="username" placeholder="Username" required><br><input type="password" name="password" placeholder="Password" required><br><button type="submit">Register</button></form></div></div>""")
+            return render_template_string(STYLE + """
+            <div class="centered-page">
+                <div class="centered-container"><div class="card"><h2>Register</h2><p style="color:red">User already exists</p>
+                <form method="post"><input name="username" placeholder="Username" required><br>
+                <input type="password" name="password" placeholder="Password" required><br>
+                <button type="submit">Register</button></form></div></div></div>""")
         data = load_data()
-        new_user = {"id": str(uuid.uuid4())[:8], "username": username, "password_hash": hash_password(password), "joined_groups": []}
+        new_user = {"id": str(uuid.uuid4())[:8], "username": username, "password_hash": hash_password(password), "used_codes": []}
         data["users"].append(new_user)
         save_data(data)
         session["user_id"] = new_user["id"]
         session["username"] = new_user["username"]
-        return redirect(url_for("user_dashboard"))
-    return render_template_string(STYLE + """<div class="centered-container"><div class="card"><h2>Register</h2><form method="post"><input name="username" placeholder="Username" required><br><input type="password" name="password" placeholder="Password" required><br><button type="submit">Register</button></form></div></div>""")
+        return redirect(url_for("dashboard"))
+    return render_template_string(STYLE + """
+    <div class="centered-page">
+        <div class="centered-container">
+            <div class="card">
+                <h2>Register</h2>
+                <form method="post">
+                    <input name="username" placeholder="Username" required><br>
+                    <input type="password" name="password" placeholder="Password" required><br>
+                    <button type="submit">Register</button>
+                </form>
+            </div>
+        </div>
+    </div>""")
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("sign_in"))
 
-# ---------- USER DASHBOARD (centered) ----------
-@app.route("/user")
-def user_dashboard():
-    if not session.get("user_id"):
-        return redirect(url_for("sign_in"))
+# ---------- USER DASHBOARD (code-based) ----------
+@app.route("/dashboard")
+@login_required
+def dashboard():
     data = load_data()
     user = get_user_by_id(session["user_id"])
-    groups = [g for g in data["groups"] if g["id"] in user["joined_groups"]]
+    # Get challenges associated with codes the user has entered
+    user_challenges = []
+    for code in data["access_codes"]:
+        if code["code"] in user.get("used_codes", []):
+            for cid in code["challenges"]:
+                ch = next((c for c in data["challenges"] if c["id"] == cid), None)
+                if ch:
+                    user_challenges.append(ch)
     instances = [i for i in data["instances"] if i["user_id"] == user["id"] and i["status"] == "running"]
     return render_template_string(STYLE + """
-    <div class="centered-container">
-        <nav><a href="/user">Dashboard</a> <a href="/logout">Logout</a></nav>
-        <div class="card">
-            <h2>Welcome, {{ user.username }}</h2>
-            <div class="card" style="margin-top:20px;">
-                <h3>Join Challenge Group</h3>
-                <form method="post" action="/user/join" class="inline-form">
-                    <input name="code" placeholder="Group Code" required>
-                    <button type="submit">Join</button>
-                </form>
-                {% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+    <div class="centered-page">
+        <div class="centered-container">
+            <div class="card" style="text-align:left;">
+                <h2>Welcome, {{ user.username }}</h2>
+                <a href="/logout"><button style="float:right;">Logout</button></a>
+                <div style="margin-top:20px;">
+                    <h3>Enter Access Code</h3>
+                    <form method="post" action="/user/redeem-code">
+                        <input name="code" placeholder="Access Code" required>
+                        <button type="submit">Unlock Challenges</button>
+                    </form>
+                    {% if error %}<p style="color:red;">{{ error }}</p>{% endif %}
+                </div>
+                {% if user_challenges %}
+                <div style="margin-top:30px;">
+                    <h3>Your Challenges</h3>
+                    <ul class="challenge-list">
+                    {% for ch in user_challenges %}
+                        <li>
+                            <strong>{{ ch.display_name }}</strong>
+                            {% if ch.build_status == "success" %}
+                                <span class="status-badge status-ready">Ready</span>
+                            {% else %}
+                                <span class="status-badge status-failed">Unavailable</span>
+                            {% endif %}
+                            {% set inst = get_instance(user.id, ch.id) %}
+                            {% if inst %}
+                                (port {{ inst.host_port }} – <a href="/instance/{{ inst.id }}">View</a>)
+                            {% else %}
+                                <a href="/start/{{ ch.id }}"><button>Start</button></a>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
             </div>
-            {% for group in groups %}
-            <div class="card" style="margin-top:20px;">
-                <h3>{{ group.name }}</h3>
-                <ul class="challenge-list">
-                {% for cid in group.challenges %}
-                    {% set ch = get_challenge(cid) %}
-                    <li>
-                        <strong>{{ ch.display_name }}</strong>
-                        {% if ch.build_status == "success" %}
-                            <span class="status-badge status-ready">Ready</span>
-                        {% else %}
-                            <span class="status-badge status-failed">Unavailable</span>
-                        {% endif %}
-                        {% set inst = get_instance(user.id, cid) %}
-                        {% if inst %}
-                            (port {{ inst.host_port }} – <a href="/user/instance/{{ inst.id }}">View</a>)
-                        {% else %}
-                            <a href="/user/start/{{ cid }}"><button>Start</button></a>
-                        {% endif %}
-                    </li>
-                {% endfor %}
-                </ul>
-            </div>
-            {% endfor %}
         </div>
     </div>
-    """, user=user, groups=groups, error=request.args.get("error"),
-       get_challenge=lambda cid: next((c for c in data["challenges"] if c["id"] == cid), None),
+    """, user=user, user_challenges=user_challenges, error=request.args.get("error"),
        get_instance=lambda uid, cid: next((i for i in instances if i["user_id"] == uid and i["challenge_id"] == cid), None))
 
-@app.route("/user/join", methods=["POST"])
-def join_group():
-    if not session.get("user_id"): return redirect(url_for("sign_in"))
+@app.route("/user/redeem-code", methods=["POST"])
+@login_required
+def redeem_code():
     code = request.form["code"].strip()
     data = load_data()
-    group = next((g for g in data["groups"] if g["join_code"] == code), None)
-    if not group:
-        return redirect(url_for("user_dashboard", error="Invalid group code"))
+    code_entry = next((c for c in data["access_codes"] if c["code"] == code), None)
+    if not code_entry:
+        return redirect(url_for("dashboard", error="Invalid code"))
     user = get_user_by_id(session["user_id"])
-    if group["id"] not in user["joined_groups"]:
-        user["joined_groups"].append(group["id"])
+    if code not in user.get("used_codes", []):
+        user.setdefault("used_codes", []).append(code)
         save_data(data)
-    return redirect(url_for("user_dashboard"))
+    return redirect(url_for("dashboard"))
 
-@app.route("/user/start/<challenge_id>")
-def start_challenge_for_user(challenge_id):
-    if not session.get("user_id"): return redirect(url_for("sign_in"))
+@app.route("/start/<challenge_id>")
+@login_required
+def start_challenge(challenge_id):
     data = load_data()
     user = get_user_by_id(session["user_id"])
-    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id), None)
-    if not challenge: return redirect(url_for("user_dashboard", error="Challenge not found"))
-    access = any(challenge_id in g["challenges"] for g in data["groups"] if g["id"] in user["joined_groups"])
-    if not access: return redirect(url_for("user_dashboard", error="Access denied"))
+    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "success"), None)
+    if not challenge:
+        return redirect(url_for("dashboard", error="Challenge not found"))
+    # Verify user has unlocked this challenge via a code
+    allowed = False
+    for code in data["access_codes"]:
+        if code["code"] in user.get("used_codes", []) and challenge_id in code["challenges"]:
+            allowed = True
+            break
+    if not allowed:
+        return redirect(url_for("dashboard", error="Access denied"))
     instance, err = create_container(challenge, user["id"])
-    if err: return redirect(url_for("user_dashboard", error=err))
+    if err:
+        return redirect(url_for("dashboard", error=err))
     return redirect(url_for("view_instance", instance_id=instance["id"]))
 
-@app.route("/user/instance/<instance_id>")
+@app.route("/instance/<instance_id>")
+@login_required
 def view_instance(instance_id):
-    if not session.get("user_id"): return redirect(url_for("sign_in"))
     data = load_data()
     instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
-    if not instance: return redirect(url_for("user_dashboard", error="Instance not found"))
+    if not instance:
+        return redirect(url_for("dashboard", error="Instance not found"))
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
     host = request.host.split(":")[0]
     msg = request.args.get("msg")
     return render_template_string(STYLE + """
-    <div class="centered-container">
-        <div class="card">
-            <h2>{{ ch.display_name }}</h2>
-            <p>Status: {{ inst.status }}</p>
-            {% if inst.connection_type == 'ssh' %}
-                <p>SSH: <code>ssh ctfuser@{{ host }} -p {{ inst.host_port }}</code></p>
-                <p>Password: <code>ctfpassword</code></p>
-            {% elif inst.connection_type == 'web' %}
-                <p>URL: <a href="http://{{ host }}:{{ inst.host_port }}">http://{{ host }}:{{ inst.host_port }}</a></p>
-            {% elif inst.connection_type == 'nc' %}
-                <p>Netcat: <code>nc {{ host }} {{ inst.host_port }}</code></p>
-            {% endif %}
-            <p>Expires: <span id="countdown">{{ inst.expires_at }}</span></p>
-            <div class="button-group">
-                <a href="/user/terminate/{{ inst.id }}"><button>Terminate</button></a>
+    <div class="centered-page">
+        <div class="centered-container">
+            <div class="card">
+                <h2>{{ ch.display_name }}</h2>
+                <p>Status: {{ inst.status }}</p>
+                {% if inst.connection_type == 'ssh' %}
+                    <p>SSH: <code>ssh ctfuser@{{ host }} -p {{ inst.host_port }}</code></p>
+                    <p>Password: <code>ctfpassword</code></p>
+                {% elif inst.connection_type == 'web' %}
+                    <p>URL: <a href="http://{{ host }}:{{ inst.host_port }}">http://{{ host }}:{{ inst.host_port }}</a></p>
+                {% elif inst.connection_type == 'nc' %}
+                    <p>Netcat: <code>nc {{ host }} {{ inst.host_port }}</code></p>
+                {% endif %}
+                <p>Expires: <span id="countdown">{{ inst.expires_at }}</span></p>
+                <a href="/terminate/{{ inst.id }}"><button>Terminate</button></a>
+                <div style="margin-top:20px;">
+                    <h3>Submit Flag</h3>
+                    <form action="/submit_flag/{{ inst.id }}" method="post" class="flag-input">
+                        <input name="flag" placeholder="flag{...}" required>
+                        <button type="submit">Submit</button>
+                    </form>
+                    {% if msg %}<p>{{ msg }}</p>{% endif %}
+                </div>
+                <a href="/dashboard">Back</a>
             </div>
-            <div class="card" style="margin-top:20px;">
-                <h3>Submit Flag</h3>
-                <form action="/user/submit_flag/{{ inst.id }}" method="post" class="flag-input">
-                    <input name="flag" placeholder="flag{...}" required>
-                    <button type="submit">Submit</button>
-                </form>
-                {% if msg %}<p>{{ msg }}</p>{% endif %}
-            </div>
-            <a href="/user">Back to Dashboard</a>
         </div>
     </div>
     <script>
@@ -384,36 +466,45 @@ def view_instance(instance_id):
     </script>
     """, ch=challenge, inst=instance, host=host, msg=msg)
 
-@app.route("/user/terminate/<instance_id>")
-def user_terminate(instance_id):
-    if not session.get("user_id"): return redirect(url_for("sign_in"))
+@app.route("/terminate/<instance_id>")
+@login_required
+def terminate(instance_id):
     data = load_data()
     instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
     if instance:
         terminate_instance(instance_id)
-    return redirect(url_for("user_dashboard"))
+    return redirect(url_for("dashboard"))
 
-@app.route("/user/submit_flag/<instance_id>", methods=["POST"])
+@app.route("/submit_flag/<instance_id>", methods=["POST"])
+@login_required
 def submit_flag(instance_id):
-    if not session.get("user_id"): return redirect(url_for("sign_in"))
     data = load_data()
     instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
-    if not instance: return redirect(url_for("user_dashboard", error="Instance not found"))
+    if not instance:
+        return redirect(url_for("dashboard", error="Instance not found"))
     submitted = request.form["flag"].strip()
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
     correct = instance.get("dynamic_flag") if challenge.get("flag_type") == "dynamic" else challenge.get("flag")
     msg = "✅ Correct!" if correct and submitted == correct else "❌ Incorrect"
     return redirect(url_for("view_instance", instance_id=instance_id, msg=msg))
 
-# ---------- ADMIN ROUTES (new URLs) ----------
+# ---------- ADMIN ----------
 @app.route("/admin/sign-in", methods=["GET", "POST"])
 def admin_sign_in():
     if request.method == "POST":
         if request.form.get("password") == ADMIN_PASSWORD:
             session["admin"] = True
-            return redirect(url_for("admin_panel"))
-        return render_template_string(STYLE + """<div class="centered-container"><div class="card"><h2>Admin Sign In</h2><p style="color:red">Wrong password</p><form method="post"><input type="password" name="password" placeholder="Password"><button type="submit">Sign In</button></form></div></div>""")
-    return render_template_string(STYLE + """<div class="centered-container"><div class="card"><h2>Admin Sign In</h2><form method="post"><input type="password" name="password" placeholder="Password"><button type="submit">Sign In</button></form></div></div>""")
+            return redirect(url_for("admin_dashboard"))
+        return render_template_string(STYLE + """
+        <div class="centered-page"><div class="centered-container"><div class="card">
+        <h2>Admin Sign In</h2><p style="color:red">Wrong password</p>
+        <form method="post"><input type="password" name="password" placeholder="Password"><button type="submit">Sign In</button></form>
+        </div></div></div>""")
+    return render_template_string(STYLE + """
+    <div class="centered-page"><div class="centered-container"><div class="card">
+    <h2>Admin Sign In</h2>
+    <form method="post"><input type="password" name="password" placeholder="Password"><button type="submit">Sign In</button></form>
+    </div></div></div>""")
 
 @app.route("/admin/logout")
 def admin_logout():
@@ -421,195 +512,275 @@ def admin_logout():
     return redirect(url_for("admin_sign_in"))
 
 @app.route("/admin")
-def admin_panel():
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
+@admin_required
+def admin_dashboard():
     data = load_data()
-
-    # List pre‑built challenges in /data/challenges_store
-    store_files = []
-    if os.path.isdir(CHALLENGES_STORE):
-        for f in os.listdir(CHALLENGES_STORE):
-            if f.endswith(".tar.gz"):
-                store_files.append(f)
-
     return render_template_string(STYLE + """
-    <div class="centered-container">
-        <nav><a href="/admin">Dashboard</a> <a href="/">Home</a> <a href="/admin/logout">Logout</a></nav>
-        <h2 style="text-align:center;">Admin Panel</h2>
-
-        <!-- Platform Update -->
-        <div class="card">
-            <h3>Update Platform</h3>
-            <p>Pull the latest image from Docker Hub and restart the platform container.</p>
-            <form method="post" action="/admin/update-platform" style="margin-top:15px;">
-                <button type="submit">Update Now</button>
-            </form>
+    <div class="admin-layout">
+        <div class="sidebar">
+            <h3>CTFploy Admin</h3>
+            <ul>
+                <li><a href="/admin"><span class="devicons devicons-dashboard"></span> Dashboard</a></li>
+                <li><a href="/admin/challenges"><span class="devicons devicons-terminal"></span> Challenges</a></li>
+                <li><a href="/admin/codes"><span class="devicons devicons-code_badge"></span> Access Codes</a></li>
+                <li><a href="/admin/update"><span class="devicons devicons-upload"></span> Update</a></li>
+                <li><a href="/admin/logout">Logout</a></li>
+            </ul>
         </div>
-
-        <!-- Upload / Gallery -->
-        <div class="card">
-            <h3><span class="devicons devicons-docker"></span> Add Challenge</h3>
-            {% if store_files %}
-            <p><strong>Pre‑built challenges (click to build):</strong></p>
-            <div class="challenge-list">
-            {% for f in store_files %}
-                <li>
-                    <form method="post" action="/admin/build-from-store" class="inline-form" style="justify-content: flex-start;">
-                        <span>{{ f }}</span>
-                        <input type="hidden" name="filename" value="{{ f }}">
-                        <button type="submit" style="margin-left:10px;">Build</button>
-                    </form>
-                </li>
-            {% endfor %}
+        <div class="main-content">
+            <div class="content-wrapper">
+                <h2>Dashboard</h2>
+                <div class="card">
+                    <p>Total challenges: {{ challenges|length }}</p>
+                    <p>Active instances: {{ instances|selectattr('status','equalto','running')|list|length }}</p>
+                </div>
             </div>
-            <hr style="margin:20px 0; border-color:#333;">
-            {% endif %}
-            <p><strong>Manual upload (path to .tar.gz on server):</strong></p>
-            <form action="/admin/upload" method="post">
-                <input name="name" placeholder="Image name (no spaces)" required><br>
-                <input name="display_name" placeholder="Display name" required><br>
-                <input name="internal_port" value="22"><br>
-                <select name="connection_type">
-                    <option value="ssh">SSH</option>
-                    <option value="web">Web (HTTP)</option>
-                    <option value="nc">Netcat</option>
-                </select><br>
-                <select name="flag_type">
-                    <option value="static">Static</option>
-                    <option value="dynamic">Dynamic</option>
-                </select><br>
-                <input name="flag" placeholder="Flag (if static)"><br>
-                <input name="filepath" placeholder="Server path to .tar.gz" required><br>
-                <button type="submit">Build Image</button>
-            </form>
-        </div>
-
-        <!-- Challenges list -->
-        <div class="card">
-            <h3>Challenges</h3>
-            <ul class="challenge-list">
-            {% for ch in challenges %}
-                <li>
-                    <strong>{{ ch.display_name }}</strong> ({{ ch.image_tag }})
-                    {% if ch.build_status == "success" %}
-                        <span class="status-badge status-ready">Ready</span>
-                    {% elif ch.build_status == "building" %}
-                        <span class="status-badge" style="background:#f1c40f;color:#000">Building</span>
-                    {% else %}
-                        <span class="status-badge status-failed">Failed</span>
-                    {% endif %}
-                    [<a href="/admin/build_log/{{ ch.id }}">Logs</a>]
-                    [<a href="/admin/delete_challenge/{{ ch.id }}">Delete</a>]
-                </li>
-            {% endfor %}
-            </ul>
-        </div>
-
-        <!-- Access Codes -->
-        <div class="card">
-            <h3>Access Codes</h3>
-            <form action="/admin/gencode" method="post" style="display:inline;"><button type="submit">Generate Code</button></form>
-            <ul class="challenge-list">
-            {% for code in codes %}
-                <li>{{ code.code }} ({{ code.used_count }}/{{ code.max_uses }}) [<a href="/admin/delete_code/{{ code.code }}">Delete</a>]</li>
-            {% endfor %}
-            </ul>
-        </div>
-
-        <!-- Groups -->
-        <div class="card">
-            <h3>Challenge Groups</h3>
-            <form action="/admin/create_group" method="post" class="inline-form">
-                <input name="group_name" placeholder="Group name" required>
-                <button type="submit">Create Group</button>
-            </form>
-            <ul class="challenge-list">
-            {% for g in groups %}
-                <li><strong>{{ g.name }}</strong> – Join Code: <code>{{ g.join_code }}</code>
-                    [<a href="/admin/delete_group/{{ g.id }}">Delete</a>]
-                    <ul>
-                    {% for cid in g.challenges %}
-                        {% set ch = get_challenge(cid) %}
-                        <li>{{ ch.display_name }} ({{ ch.build_status }})</li>
-                    {% endfor %}
-                    </ul>
-                    <form action="/admin/add_challenge_to_group" method="post" class="inline-form" style="margin-top:5px;">
-                        <input type="hidden" name="group_id" value="{{ g.id }}">
-                        <select name="challenge_id">
-                        {% for ch in challenges %}
-                            {% if ch.build_status == "success" %}
-                                <option value="{{ ch.id }}">{{ ch.display_name }}</option>
-                            {% endif %}
-                        {% endfor %}
-                        </select>
-                        <button type="submit">Add to Group</button>
-                    </form>
-                </li>
-            {% endfor %}
-            </ul>
-        </div>
-
-        <!-- Running Instances -->
-        <div class="card">
-            <h3>Running Instances</h3>
-            <ul class="challenge-list">
-            {% for inst in instances if inst.status == "running" %}
-                <li>{{ inst.container_name }} :{{ inst.host_port }} (user: {{ inst.user_id }}) – Expires {{ inst.expires_at }}</li>
-            {% endfor %}
-            </ul>
         </div>
     </div>
-    """, challenges=data["challenges"], codes=data.get("codes",[]), groups=data.get("groups",[]), instances=data.get("instances",[]),
-       get_challenge=lambda cid: next((c for c in data["challenges"] if c["id"] == cid), None),
-       store_files=store_files)
+    """, challenges=data["challenges"], instances=data["instances"])
 
-# Admin actions (upload, logs, codes, groups)
+@app.route("/admin/challenges", methods=["GET"])
+@admin_required
+def admin_challenges():
+    data = load_data()
+    store_files = []
+    if os.path.isdir(CHALLENGES_STORE):
+        store_files = [f for f in os.listdir(CHALLENGES_STORE) if f.endswith(".tar.gz")]
+    return render_template_string(STYLE + """
+    <div class="admin-layout">
+        <div class="sidebar">
+            <h3>CTFploy Admin</h3>
+            <ul>
+                <li><a href="/admin"><span class="devicons devicons-dashboard"></span> Dashboard</a></li>
+                <li><a href="/admin/challenges"><span class="devicons devicons-terminal"></span> Challenges</a></li>
+                <li><a href="/admin/codes"><span class="devicons devicons-code_badge"></span> Access Codes</a></li>
+                <li><a href="/admin/update"><span class="devicons devicons-upload"></span> Update</a></li>
+                <li><a href="/admin/logout">Logout</a></li>
+            </ul>
+        </div>
+        <div class="main-content">
+            <div class="content-wrapper">
+                <h2>Challenges</h2>
+
+                <!-- Import from URL -->
+                <div class="card">
+                    <h3>Import from URL</h3>
+                    <form action="/admin/import-url" method="post">
+                        <input name="url" placeholder="https://example.com/challenge.tar.gz" required>
+                        <button type="submit">Fetch & Build</button>
+                    </form>
+                    <p style="font-size:0.9rem; color:#aaa;">Archive must contain a Dockerfile (and optionally <code>ctfploy.json</code>).</p>
+                </div>
+
+                <!-- Pre‑built gallery -->
+                {% if store_files %}
+                <div class="card">
+                    <h3>Pre‑built Challenges</h3>
+                    <ul class="challenge-list">
+                    {% for f in store_files %}
+                        <li>
+                            <form method="post" action="/admin/build-from-store" style="display:inline;">
+                                <input type="hidden" name="filename" value="{{ f }}">
+                                <span>{{ f }}</span>
+                                <button type="submit" style="margin-left:10px;">Build</button>
+                            </form>
+                        </li>
+                    {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+
+                <!-- Manual upload -->
+                <div class="card">
+                    <h3>Manual Upload (server path)</h3>
+                    <form action="/admin/upload" method="post">
+                        <input name="name" placeholder="Image name" required><br>
+                        <input name="display_name" placeholder="Display name" required><br>
+                        <input name="internal_port" value="22"><br>
+                        <select name="connection_type">
+                            <option value="ssh">SSH</option>
+                            <option value="web">Web (HTTP)</option>
+                            <option value="nc">Netcat</option>
+                        </select><br>
+                        <select name="flag_type">
+                            <option value="static">Static</option>
+                            <option value="dynamic">Dynamic</option>
+                        </select><br>
+                        <input name="flag" placeholder="Flag (if static)"><br>
+                        <input name="filepath" placeholder="Server path to .tar.gz" required><br>
+                        <button type="submit">Build</button>
+                    </form>
+                </div>
+
+                <!-- Existing challenges -->
+                <div class="card">
+                    <h3>All Challenges</h3>
+                    <ul class="challenge-list">
+                    {% for ch in challenges %}
+                        <li>
+                            <strong>{{ ch.display_name }}</strong> ({{ ch.image_tag }})
+                            {% if ch.build_status == "success" %}
+                                <span class="status-badge status-ready">Ready</span>
+                            {% elif ch.build_status == "building" %}
+                                <span class="status-badge" style="background:#f1c40f;color:#000">Building</span>
+                            {% else %}
+                                <span class="status-badge status-failed">Failed</span>
+                            {% endif %}
+                            [<a href="/admin/build_log/{{ ch.id }}">Logs</a>]
+                            [<a href="/admin/delete_challenge/{{ ch.id }}">Delete</a>]
+                        </li>
+                    {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, challenges=data["challenges"], store_files=store_files)
+
+# URL import with metadata detection
+@app.route("/admin/import-url", methods=["POST"])
+@admin_required
+def import_url():
+    url = request.form["url"].strip()
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz") as tmp:
+            urllib.request.urlretrieve(url, tmp.name)
+            filepath = tmp.name
+
+        build_dir = f"/tmp/ctf_build_{int(time.time())}"
+        os.makedirs(build_dir, exist_ok=True)
+        with tarfile.open(filepath, "r:gz") as tar:
+            tar.extractall(build_dir)
+        os.unlink(filepath)
+
+        # Look for ctfploy.json
+        metadata_path = os.path.join(build_dir, "ctfploy.json")
+        meta = {}
+        if os.path.exists(metadata_path):
+            with open(metadata_path) as f:
+                meta = json.load(f)
+
+        name = meta.get("name", os.path.basename(url).replace(".tar.gz","").replace(" ","-").lower())
+        display_name = meta.get("display_name", name.replace("-"," ").title())
+        internal_port = meta.get("internal_port", 22)
+        connection_type = meta.get("connection_type", "ssh")
+        flag_type = meta.get("flag_type", "static")
+        flag = meta.get("flag", "flag{change_me}")
+        hints = meta.get("hints", [])
+
+        image_tag = f"ctf-{name}"
+        challenge_id = str(uuid.uuid4())[:8]
+        challenge = {
+            "id": challenge_id,
+            "name": name,
+            "display_name": display_name,
+            "image_tag": image_tag,
+            "internal_port": internal_port,
+            "connection_type": connection_type,
+            "flag_type": flag_type,
+            "flag": flag,
+            "hints": hints,
+            "build_status": "building",
+            "build_log": ""
+        }
+        data = load_data()
+        data["challenges"].append(challenge)
+        save_data(data)
+        threading.Thread(target=build_image_thread, args=(name, build_dir, image_tag, challenge_id), daemon=True).start()
+        return redirect(url_for("build_log_view", challenge_id=challenge_id))
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+# Manual upload (also supports metadata)
 @app.route("/admin/upload", methods=["POST"])
+@admin_required
 def admin_upload():
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
     data = load_data()
     name = request.form["name"].strip().lower().replace(" ", "-")
     display_name = request.form["display_name"]
     internal_port = int(request.form.get("internal_port", 22))
     connection_type = request.form.get("connection_type", "ssh")
     flag_type = request.form.get("flag_type", "static")
-    static_flag = request.form.get("flag", "")
+    flag = request.form.get("flag", "")
     filepath = request.form["filepath"].strip()
-    if not filepath or not os.path.exists(filepath): return "File not found", 400
+    if not filepath or not os.path.exists(filepath):
+        return "File not found", 400
+
     build_dir = f"/tmp/ctf_build_{name}_{int(time.time())}"
     os.makedirs(build_dir, exist_ok=True)
-    with tarfile.open(filepath, "r:gz") as tar: tar.extractall(build_dir)
+    with tarfile.open(filepath, "r:gz") as tar:
+        tar.extractall(build_dir)
+
+    # Check for ctfploy.json to override manual inputs
+    metadata_path = os.path.join(build_dir, "ctfploy.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path) as f:
+            meta = json.load(f)
+        name = meta.get("name", name)
+        display_name = meta.get("display_name", display_name)
+        internal_port = meta.get("internal_port", internal_port)
+        connection_type = meta.get("connection_type", connection_type)
+        flag_type = meta.get("flag_type", flag_type)
+        flag = meta.get("flag", flag)
+
     image_tag = f"ctf-{name}"
     challenge_id = str(uuid.uuid4())[:8]
-    challenge = {"id": challenge_id, "name": name, "display_name": display_name, "image_tag": image_tag,
-                 "internal_port": internal_port, "connection_type": connection_type, "flag_type": flag_type,
-                 "flag": static_flag, "build_status": "building", "build_log": ""}
+    challenge = {
+        "id": challenge_id,
+        "name": name,
+        "display_name": display_name,
+        "image_tag": image_tag,
+        "internal_port": internal_port,
+        "connection_type": connection_type,
+        "flag_type": flag_type,
+        "flag": flag,
+        "build_status": "building",
+        "build_log": ""
+    }
     data["challenges"].append(challenge)
     save_data(data)
     threading.Thread(target=build_image_thread, args=(name, build_dir, image_tag, challenge_id), daemon=True).start()
     return redirect(url_for("build_log_view", challenge_id=challenge_id))
 
 @app.route("/admin/build-from-store", methods=["POST"])
-def admin_build_from_store():
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
+@admin_required
+def build_from_store():
     filename = request.form["filename"].strip()
     filepath = os.path.join(CHALLENGES_STORE, filename)
-    if not os.path.exists(filepath): return "File not found in store", 400
-    name = filename.replace(".tar.gz", "").replace(" ", "-").lower()
-    display_name = filename.replace(".tar.gz", "").replace("-", " ").title()
-    internal_port = 22   # default, can be overridden if we store metadata
-    connection_type = "ssh"  # default
-    flag_type = "static"
-    flag = "flag{default}"
-
-    build_dir = f"/tmp/ctf_build_{name}_{int(time.time())}"
+    if not os.path.exists(filepath):
+        return "File not found", 400
+    # Same metadata logic as import, but from local file
+    build_dir = f"/tmp/ctf_build_{int(time.time())}"
     os.makedirs(build_dir, exist_ok=True)
-    with tarfile.open(filepath, "r:gz") as tar: tar.extractall(build_dir)
+    with tarfile.open(filepath, "r:gz") as tar:
+        tar.extractall(build_dir)
+
+    metadata_path = os.path.join(build_dir, "ctfploy.json")
+    meta = {}
+    if os.path.exists(metadata_path):
+        with open(metadata_path) as f:
+            meta = json.load(f)
+
+    name = meta.get("name", filename.replace(".tar.gz","").replace(" ","-").lower())
+    display_name = meta.get("display_name", name.replace("-"," ").title())
+    internal_port = meta.get("internal_port", 22)
+    connection_type = meta.get("connection_type", "ssh")
+    flag_type = meta.get("flag_type", "static")
+    flag = meta.get("flag", "flag{default}")
     image_tag = f"ctf-{name}"
     challenge_id = str(uuid.uuid4())[:8]
-    challenge = {"id": challenge_id, "name": name, "display_name": display_name, "image_tag": image_tag,
-                 "internal_port": internal_port, "connection_type": connection_type, "flag_type": flag_type,
-                 "flag": flag, "build_status": "building", "build_log": ""}
+    challenge = {
+        "id": challenge_id,
+        "name": name,
+        "display_name": display_name,
+        "image_tag": image_tag,
+        "internal_port": internal_port,
+        "connection_type": connection_type,
+        "flag_type": flag_type,
+        "flag": flag,
+        "build_status": "building",
+        "build_log": ""
+    }
     data = load_data()
     data["challenges"].append(challenge)
     save_data(data)
@@ -617,10 +788,11 @@ def admin_build_from_store():
     return redirect(url_for("build_log_view", challenge_id=challenge_id))
 
 @app.route("/admin/build_log/<challenge_id>")
+@admin_required
 def build_log_view(challenge_id):
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
     return render_template_string(STYLE + """
-    <div class="centered-container"><div class="card"><h2>Build Log</h2><div id="log" class="log-window"></div></div></div>
+    <div class="centered-page"><div class="centered-container"><div class="card">
+    <h2>Build Log</h2><div id="log" class="log-window"></div></div></div></div>
     <script>
         const evtSource = new EventSource("/admin/build_log_stream/{{ challenge_id }}");
         const logDiv = document.getElementById("log");
@@ -634,6 +806,7 @@ def build_log_view(challenge_id):
     """, challenge_id=challenge_id)
 
 @app.route("/admin/build_log_stream/<challenge_id>")
+@admin_required
 def build_log_stream(challenge_id):
     q = build_logs.get(challenge_id)
     if not q:
@@ -642,86 +815,154 @@ def build_log_stream(challenge_id):
     def generate():
         while True:
             line = q.get()
-            if line is None: yield "data: END\n\n"; break
+            if line is None:
+                yield "data: END\n\n"
+                break
             yield f"data: {line}\n\n"
             time.sleep(0.05)
     return Response(generate(), mimetype="text/event-stream")
 
 @app.route("/admin/delete_challenge/<challenge_id>")
+@admin_required
 def delete_challenge(challenge_id):
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
     data = load_data()
     data["challenges"] = [c for c in data["challenges"] if c["id"] != challenge_id]
     for inst in data["instances"]:
         if inst["challenge_id"] == challenge_id and inst["status"] == "running":
             terminate_instance(inst["id"])
     save_data(data)
-    return redirect(url_for("admin_panel"))
+    return redirect(url_for("admin_challenges"))
+
+# Access codes management
+@app.route("/admin/codes", methods=["GET"])
+@admin_required
+def admin_codes():
+    data = load_data()
+    return render_template_string(STYLE + """
+    <div class="admin-layout">
+        <div class="sidebar">
+            <h3>CTFploy Admin</h3>
+            <ul>
+                <li><a href="/admin"><span class="devicons devicons-dashboard"></span> Dashboard</a></li>
+                <li><a href="/admin/challenges"><span class="devicons devicons-terminal"></span> Challenges</a></li>
+                <li><a href="/admin/codes"><span class="devicons devicons-code_badge"></span> Access Codes</a></li>
+                <li><a href="/admin/update"><span class="devicons devicons-upload"></span> Update</a></li>
+                <li><a href="/admin/logout">Logout</a></li>
+            </ul>
+        </div>
+        <div class="main-content">
+            <div class="content-wrapper">
+                <h2>Access Codes</h2>
+                <div class="card">
+                    <form action="/admin/gencode" method="post">
+                        <button type="submit">Generate New Code</button>
+                    </form>
+                </div>
+                <div class="card">
+                    <ul class="challenge-list">
+                    {% for code in access_codes %}
+                        <li>
+                            <strong>{{ code.code }}</strong> (used by {{ code.used_by|length }} user(s))
+                            <ul>
+                            {% for cid in code.challenges %}
+                                {% set ch = get_challenge(cid) %}
+                                <li>{{ ch.display_name }} ({{ ch.build_status }})</li>
+                            {% endfor %}
+                            </ul>
+                            <form action="/admin/add_challenge_to_code" method="post" style="margin-top:5px;">
+                                <input type="hidden" name="code" value="{{ code.code }}">
+                                <select name="challenge_id">
+                                {% for ch in challenges if ch.build_status == "success" %}
+                                    <option value="{{ ch.id }}">{{ ch.display_name }}</option>
+                                {% endfor %}
+                                </select>
+                                <button type="submit">Add Challenge</button>
+                            </form>
+                            [<a href="/admin/delete_code/{{ code.code }}">Delete Code</a>]
+                        </li>
+                    {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, access_codes=data["access_codes"], challenges=data["challenges"],
+       get_challenge=lambda cid: next((c for c in data["challenges"] if c["id"] == cid), None))
 
 @app.route("/admin/gencode", methods=["POST"])
+@admin_required
 def generate_code():
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
     data = load_data()
     code_str = f"CTF-{uuid.uuid4().hex[:6].upper()}"
-    data.setdefault("codes", []).append({"code": code_str, "max_uses": 1, "used_count": 0, "created_at": datetime.now().isoformat()})
+    data["access_codes"].append({
+        "code": code_str,
+        "challenges": [],
+        "used_by": []
+    })
     save_data(data)
-    return redirect(url_for("admin_panel"))
+    return redirect(url_for("admin_codes"))
+
+@app.route("/admin/add_challenge_to_code", methods=["POST"])
+@admin_required
+def add_challenge_to_code():
+    data = load_data()
+    code = request.form["code"]
+    challenge_id = request.form["challenge_id"]
+    for c in data["access_codes"]:
+        if c["code"] == code and challenge_id not in c["challenges"]:
+            c["challenges"].append(challenge_id)
+    save_data(data)
+    return redirect(url_for("admin_codes"))
 
 @app.route("/admin/delete_code/<code>")
+@admin_required
 def delete_code(code):
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
     data = load_data()
-    data["codes"] = [c for c in data["codes"] if c["code"] != code]
+    data["access_codes"] = [c for c in data["access_codes"] if c["code"] != code]
     save_data(data)
-    return redirect(url_for("admin_panel"))
+    return redirect(url_for("admin_codes"))
 
-@app.route("/admin/create_group", methods=["POST"])
-def create_group():
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
-    data = load_data()
-    name = request.form["group_name"].strip()
-    join_code = f"CLASS-{uuid.uuid4().hex[:6].upper()}"
-    group = {"id": str(uuid.uuid4())[:8], "name": name, "join_code": join_code, "challenges": []}
-    data.setdefault("groups", []).append(group)
-    save_data(data)
-    return redirect(url_for("admin_panel"))
-
-@app.route("/admin/delete_group/<group_id>")
-def delete_group(group_id):
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
-    data = load_data()
-    data["groups"] = [g for g in data["groups"] if g["id"] != group_id]
-    save_data(data)
-    return redirect(url_for("admin_panel"))
-
-@app.route("/admin/add_challenge_to_group", methods=["POST"])
-def add_challenge_to_group():
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
-    data = load_data()
-    group_id = request.form["group_id"]
-    challenge_id = request.form["challenge_id"]
-    for g in data["groups"]:
-        if g["id"] == group_id and challenge_id not in g["challenges"]:
-            g["challenges"].append(challenge_id)
-    save_data(data)
-    return redirect(url_for("admin_panel"))
-
-@app.route("/admin/update-platform", methods=["POST"])
-def admin_update_platform():
-    if not session.get("admin"): return redirect(url_for("admin_sign_in"))
-    try:
-        # Pull the latest image and restart the platform container
-        subprocess.run(["docker", "pull", "zohidjonmarufov/ctfploy-platform:main"], check=True)
-        subprocess.run(["docker", "compose", "-f", "/etc/ctfploy/docker-compose.yml", "up", "-d", "platform"], check=True)
-        flash("Platform updated successfully! Pulled latest image and restarted.", "success")
-    except Exception as e:
-        flash(f"Update failed: {str(e)}", "error")
-    return redirect(url_for("admin_panel"))
+# Update platform
+@app.route("/admin/update", methods=["GET", "POST"])
+@admin_required
+def admin_update():
+    if request.method == "POST":
+        try:
+            subprocess.run(["docker", "pull", "zohidjonmarufov/ctfploy-platform:main"], check=True)
+            subprocess.run(["docker", "compose", "-f", "/etc/ctfploy/docker-compose.yml", "up", "-d", "platform"], check=True)
+            flash("Platform updated successfully!", "success")
+        except Exception as e:
+            flash(f"Update failed: {str(e)}", "error")
+        return redirect(url_for("admin_update"))
+    return render_template_string(STYLE + """
+    <div class="admin-layout">
+        <div class="sidebar">
+            <h3>CTFploy Admin</h3>
+            <ul>
+                <li><a href="/admin"><span class="devicons devicons-dashboard"></span> Dashboard</a></li>
+                <li><a href="/admin/challenges"><span class="devicons devicons-terminal"></span> Challenges</a></li>
+                <li><a href="/admin/codes"><span class="devicons devicons-code_badge"></span> Access Codes</a></li>
+                <li><a href="/admin/update"><span class="devicons devicons-upload"></span> Update</a></li>
+                <li><a href="/admin/logout">Logout</a></li>
+            </ul>
+        </div>
+        <div class="main-content">
+            <div class="content-wrapper">
+                <h2>Update Platform</h2>
+                <div class="card">
+                    <p>Pull the latest image from Docker Hub and restart the platform container.</p>
+                    <form method="post">
+                        <button type="submit">Update Now</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    """)
 
 # ---------- STARTUP ----------
 with app.app_context():
     ensure_network()
-    # Ensure challenges_store directory exists
     os.makedirs(CHALLENGES_STORE, exist_ok=True)
 
 if __name__ == "__main__":
