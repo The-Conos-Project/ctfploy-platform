@@ -48,8 +48,9 @@ def get_user(username):
             return u
     return None
 
-def get_user_by_id(uid):
-    data = load_data()
+def get_user_by_id(uid, data=None):
+    if data is None:
+        data = load_data()
     for u in data["users"]:
         if u["id"] == uid:
             return u
@@ -388,7 +389,11 @@ def redeem_code():
     if not code_entry:
         flash("Invalid code", "error")
         return redirect(url_for("dashboard"))
-    user = get_user_by_id(session["user_id"])
+    # Use the SAME data object to find the user
+    user = next((u for u in data["users"] if u["id"] == session["user_id"]), None)
+    if not user:
+        flash("User not found", "error")
+        return redirect(url_for("dashboard"))
     if code in user.get("used_codes", []):
         flash("You have already used this code.", "error")
         return redirect(url_for("dashboard"))
@@ -396,7 +401,7 @@ def redeem_code():
     username = user["username"]
     if username not in code_entry.get("used_by", []):
         code_entry.setdefault("used_by", []).append(username)
-    save_data(data)
+    save_data(data)   # saves the modified copy
     flash("Code unlocked successfully!", "success")
     return redirect(url_for("dashboard"))
 
