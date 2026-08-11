@@ -50,18 +50,25 @@ def admin_codes_page(access_codes, challenges, get_challenge, flashes=None):
             ch = get_challenge(cid)
             if ch:
                 challenges_list += f'<li>{ch["display_name"]} ({ch["build_status"]})</li>'
+
+        select_options = ' '.join(
+            f'<option value="{ch["id"]}">{ch["display_name"]}</option>'
+            for ch in challenges
+            if ch['build_status'] == 'success'
+        )
+
         codes_html += f"""
         <li>
             <strong>{code['code']}</strong> {used_by}
-            <ul style=\"margin-left:18px; margin-top:10px;\">{challenges_list}</ul>
-            <form action=\"/admin/add_challenge_to_code\" method=\"post\" style=\"display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;\">
-                <input type=\"hidden\" name=\"code\" value=\"{code['code']}\">
-                <select name=\"challenge_id\" style=\"flex:1;\">
-                    {' '.join([f'<option value=\"{ch['id']}\">{ch['display_name']}</option>' for ch in challenges if ch['build_status'] == 'success'])}
+            <ul style="margin-left:18px; margin-top:10px;">{challenges_list}</ul>
+            <form action="/admin/add_challenge_to_code" method="post" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+                <input type="hidden" name="code" value="{code['code']}">
+                <select name="challenge_id" style="flex:1;">
+                    {select_options}
                 </select>
-                <button type=\"submit\">Add</button>
+                <button type="submit">Add</button>
             </form>
-            <div class=\"small-text\"><a href=\"/admin/delete_code/{code['code']}\">Delete</a></div>
+            <div class="small-text"><a href="/admin/delete_code/{code['code']}">Delete</a></div>
         </li>
         """
     codes_html += '</ul></div>'
