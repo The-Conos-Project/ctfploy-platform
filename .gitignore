@@ -8,4 +8,5 @@ venv/
 dist/
 build/
 data.json
+data.db
 challenges_store/

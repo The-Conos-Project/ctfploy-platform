@@ -24,6 +24,28 @@ def sign_in_page(error: bool = False) -> str:
     """, title="Sign In - CTFploy")
 
 
+def admin_sign_in_page(error: bool = False) -> str:
+    error_html = '<div class="flash error">Invalid admin credentials</div>' if error else ''
+    return centered_layout(f"""
+    <div class="centered-page">
+        <div class="centered-container">
+            <div class="card">
+                <h2>CTFploy Admin Sign In</h2>
+                <p>Admin username is fixed to <strong>root</strong>.</p>
+                {error_html}
+                <form method="post">
+                    <label>Username</label>
+                    <input name="username" value="root" readonly>
+                    <label>Password</label>
+                    <input type="password" name="password" placeholder="Admin password" required autofocus>
+                    <button type="submit">Sign In</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    """, title="Admin Sign In - CTFploy")
+
+
 def register_page(error: bool = False) -> str:
     error_html = '<div class="flash error">Username already exists</div>' if error else ''
     return centered_layout(f"""

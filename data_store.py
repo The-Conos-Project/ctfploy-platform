@@ -1,42 +1,241 @@
-import json, os, hashlib
+import json
+import os
+import sqlite3
+import hashlib
+import hmac
+import secrets
 from typing import Optional
 
-DATA_FILE = "/data/data.json"
+from config import DATA_DB, DATA_JSON, HASH_ITERATIONS, HASH_SALT_BYTES
+
+
+def _connect():
+    os.makedirs(os.path.dirname(DATA_DB), exist_ok=True)
+    conn = sqlite3.connect(DATA_DB, timeout=30)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_db() -> None:
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                used_codes TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS challenges (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                display_name TEXT,
+                image_tag TEXT,
+                internal_port INTEGER,
+                connection_type TEXT,
+                flag_type TEXT,
+                flag TEXT,
+                hints TEXT,
+                build_status TEXT
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS access_codes (
+                code TEXT PRIMARY KEY,
+                challenges TEXT NOT NULL,
+                used_by TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS instances (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                challenge_id TEXT,
+                container_id TEXT,
+                container_name TEXT,
+                host_port INTEGER,
+                connection_type TEXT,
+                status TEXT,
+                created_at TEXT,
+                expires_at TEXT,
+                dynamic_flag TEXT,
+                flag TEXT,
+                username TEXT,
+                password TEXT
+            )
+            """
+        )
+        conn.commit()
+
+
+def _serialize(value):
+    return json.dumps(value, separators=(",", ":"), default=str)
+
+
+def _deserialize(value):
+    return json.loads(value) if value else []
+
+
+def _migrate_json():
+    if os.path.exists(DATA_JSON) and not os.path.exists(DATA_DB):
+        with open(DATA_JSON) as f:
+            data = json.load(f)
+        save_data(data)
 
 
 def load_data() -> dict:
-    if not os.path.exists(DATA_FILE):
-        return {"challenges": [], "access_codes": [], "instances": [], "users": []}
-    with open(DATA_FILE) as f:
-        data = json.load(f)
-        for key in ["challenges", "access_codes", "instances", "users"]:
-            if key not in data:
-                data[key] = []
-        return data
+    _init_db()
+    _migrate_json()
+    with _connect() as conn:
+        cursor = conn.cursor()
+        users = [
+            {
+                **dict(row),
+                "used_codes": _deserialize(row["used_codes"]),
+            }
+            for row in cursor.execute("SELECT * FROM users")
+        ]
+        challenges = [
+            {
+                **dict(row),
+                "hints": _deserialize(row["hints"]),
+            }
+            for row in cursor.execute("SELECT * FROM challenges")
+        ]
+        access_codes = [
+            {
+                **dict(row),
+                "challenges": _deserialize(row["challenges"]),
+                "used_by": _deserialize(row["used_by"]),
+            }
+            for row in cursor.execute("SELECT * FROM access_codes")
+        ]
+        instances = [dict(row) for row in cursor.execute("SELECT * FROM instances")]
+        return {
+            "users": users,
+            "challenges": challenges,
+            "access_codes": access_codes,
+            "instances": instances,
+        }
 
 
 def save_data(data: dict) -> None:
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2, default=str)
+    _init_db()
+    with _connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users")
+        cursor.execute("DELETE FROM challenges")
+        cursor.execute("DELETE FROM access_codes")
+        cursor.execute("DELETE FROM instances")
+
+        for user in data.get("users", []):
+            cursor.execute(
+                "INSERT OR REPLACE INTO users (id, username, password_hash, used_codes) VALUES (?, ?, ?, ?)",
+                (
+                    user["id"],
+                    user["username"],
+                    user["password_hash"],
+                    _serialize(user.get("used_codes", [])),
+                ),
+            )
+
+        for challenge in data.get("challenges", []):
+            cursor.execute(
+                "INSERT OR REPLACE INTO challenges (id, name, display_name, image_tag, internal_port, connection_type, flag_type, flag, hints, build_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    challenge["id"],
+                    challenge["name"],
+                    challenge.get("display_name"),
+                    challenge.get("image_tag"),
+                    challenge.get("internal_port"),
+                    challenge.get("connection_type"),
+                    challenge.get("flag_type"),
+                    challenge.get("flag"),
+                    _serialize(challenge.get("hints", [])),
+                    challenge.get("build_status"),
+                ),
+            )
+
+        for code in data.get("access_codes", []):
+            cursor.execute(
+                "INSERT OR REPLACE INTO access_codes (code, challenges, used_by) VALUES (?, ?, ?)",
+                (
+                    code["code"],
+                    _serialize(code.get("challenges", [])),
+                    _serialize(code.get("used_by", [])),
+                ),
+            )
+
+        for instance in data.get("instances", []):
+            cursor.execute(
+                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, container_id, container_name, host_port, connection_type, status, created_at, expires_at, dynamic_flag, flag, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    instance["id"],
+                    instance.get("user_id"),
+                    instance.get("challenge_id"),
+                    instance.get("container_id"),
+                    instance.get("container_name"),
+                    instance.get("host_port"),
+                    instance.get("connection_type"),
+                    instance.get("status"),
+                    instance.get("created_at"),
+                    instance.get("expires_at"),
+                    instance.get("dynamic_flag"),
+                    instance.get("flag"),
+                    instance.get("username"),
+                    instance.get("password"),
+                ),
+            )
+        conn.commit()
 
 
-def hash_password(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
+def hash_password(pw: str, salt: Optional[str] = None) -> str:
+    if salt is None:
+        salt = secrets.token_hex(HASH_SALT_BYTES)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), HASH_ITERATIONS)
+    return f"{salt}${HASH_ITERATIONS}${dk.hex()}"
+
+
+def verify_password(pw: str, stored: str) -> bool:
+    try:
+        salt, iterations, digest = stored.split("$")
+        derived = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), int(iterations)).hex()
+        return hmac.compare_digest(derived, digest)
+    except Exception:
+        return False
 
 
 def get_user(username: str) -> Optional[dict]:
-    data = load_data()
-    for u in data["users"]:
-        if u["username"] == username:
-            return u
-    return None
+    _init_db()
+    _migrate_json()
+    with _connect() as conn:
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if not row:
+            return None
+        user = dict(row)
+        user["used_codes"] = _deserialize(user["used_codes"])
+        return user
 
 
 def get_user_by_id(uid: str, data: Optional[dict] = None) -> Optional[dict]:
-    if data is None:
-        data = load_data()
-    for u in data["users"]:
-        if u["id"] == uid:
-            return u
-    return None
+    if data is not None:
+        return next((u for u in data.get("users", []) if u["id"] == uid), None)
+    _init_db()
+    with _connect() as conn:
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+        if not row:
+            return None
+        user = dict(row)
+        user["used_codes"] = _deserialize(user["used_codes"])
+        return user
