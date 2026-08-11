@@ -457,6 +457,49 @@ def build_log_page(challenge_id: str) -> str:
     """)
 
 
+def hub_page(challenges, query="") -> str:
+    search_html = f"""
+    <div style="max-width:900px; margin:0 auto; padding:40px 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+            <h2 style="font-weight:500; margin:0;">CTFploy Hub</h2>
+            <a href="/admin/challenges" style="color:#888; font-size:0.9rem;">Admin Panel</a>
+        </div>
+        <div class="card" style="margin-bottom:24px;">
+            <form method="get" action="/hub" style="display:flex; gap:8px;">
+                <input name="q" placeholder="Search challenges..." value="{query}" required style="flex:1;">
+                <button type="submit" style="width:auto;">Search</button>
+            </form>
+        </div>
+    """
+
+    if not challenges:
+        search_html += '<div class="card"><p style="color:#888;">No challenges found.</p></div>'
+    else:
+        search_html += '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px;">'
+        for ch in challenges:
+            flag_info = "Static" if ch.get("flag_type") == "static" else "Dynamic"
+            conn_info = ch.get("connection_type", "ssh").upper()
+            search_html += f"""
+            <div class="card" style="margin:0;">
+                <h3 style="font-weight:500; margin-bottom:8px;">{ch.get("display_name", ch.get("name", "Unknown"))}</h3>
+                <p style="font-size:0.85rem; color:#888; margin-bottom:12px;">{ch.get("name", "")}</p>
+                <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+                    <span class="status-badge status-ready">{conn_info}</span>
+                    <span class="status-badge status-building">{flag_info}</span>
+                </div>
+                <p style="font-size:0.85rem; color:#aaa; margin-bottom:16px;">Port: {ch.get("internal_port", 22)}</p>
+                <form method="post" action="/hub/import">
+                    <input type="hidden" name="url" value="{ch.get("download_url", "")}">
+                    <button type="submit" style="width:100%;">Import & Build</button>
+                </form>
+            </div>
+            """
+        search_html += "</div>"
+
+    search_html += "</div>"
+    return centered_layout(search_html)
+
+
 def admin_dashboard_page(challenges, instances, flashes=None) -> str:
     flash_html = ""
     if flashes:

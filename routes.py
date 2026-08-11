@@ -13,6 +13,7 @@ from templates import (
     admin_update_page,
     build_log_page,
     dashboard_page,
+    hub_page,
     instance_page,
     register_page,
     sign_in_page,
@@ -429,6 +430,145 @@ def admin_update():
             return redirect(url_for("main.admin_update", error=f"Update failed: {str(e)}"))
     flashes = _flashes_from_request()
     return admin_update_page(flashes=flashes)
+
+
+# ---------- HUB ----------
+@bp.route("/hub")
+def hub():
+    query = request.args.get("q", "").strip().lower()
+    challenges = _fetch_hub_challenges()
+    if query:
+        challenges = [c for c in challenges if query in c["display_name"].lower() or query in c["name"].lower()]
+    return hub_page(challenges, query)
+
+
+@bp.route("/hub/import", methods=["POST"])
+@admin_required
+def hub_import():
+    url = request.form.get("url", "").strip()
+    if not url:
+        return redirect(url_for("main.hub", error="Missing URL"))
+    return redirect(url_for("main.admin_import_url_proxy", url=url))
+
+
+@bp.route("/admin/import-url-proxy", methods=["POST"])
+@admin_required
+def admin_import_url_proxy():
+    url = request.form.get("url", "").strip()
+    if not url:
+        return redirect(url_for("main.admin_challenges", error="Missing URL"))
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz") as tmp:
+            urllib.request.urlretrieve(url, tmp.name)
+            filepath = tmp.name
+
+        build_dir = f"/tmp/ctf_build_{int(time.time())}"
+        os.makedirs(build_dir, exist_ok=True)
+        with tarfile.open(filepath, "r:gz") as tar:
+            tar.extractall(build_dir)
+        os.unlink(filepath)
+
+        metadata_path = os.path.join(build_dir, "ctfploy.json")
+        meta = {}
+        if os.path.exists(metadata_path):
+            with open(metadata_path) as f:
+                meta = json.load(f)
+
+        name = meta.get("name", os.path.basename(url).replace(".tar.gz","").replace(" ","-").lower())
+        display_name = meta.get("display_name", name.replace("-"," ").title())
+        internal_port = meta.get("internal_port", 22)
+        connection_type = meta.get("connection_type", "ssh")
+        flag_type = meta.get("flag_type", "static")
+        flag = meta.get("flag", "flag{change_me}")
+        hints = meta.get("hints", [])
+
+        image_tag = f"ctf-{name}"
+        challenge_id = str(uuid.uuid4())[:8]
+        challenge = {
+            "id": challenge_id,
+            "name": name,
+            "display_name": display_name,
+            "image_tag": image_tag,
+            "internal_port": internal_port,
+            "connection_type": connection_type,
+            "flag_type": flag_type,
+            "flag": flag,
+            "hints": hints,
+            "build_status": "building",
+        }
+        data = load_data()
+        data["challenges"].append(challenge)
+        save_data(data)
+        threading.Thread(target=build_image_thread, args=(name, build_dir, image_tag, challenge_id), daemon=True).start()
+        return redirect(url_for("main.build_log_view", challenge_id=challenge_id))
+    except Exception as e:
+        return redirect(url_for("main.hub", error=str(e)))
+
+
+def _fetch_hub_challenges():
+    challenges = []
+    try:
+        api_url = "https://api.github.com/repos/The-Conos-Project/ctf-challenges/contents/challenges"
+        req = urllib.request.Request(api_url, headers={"User-Agent": "CTFploy"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            items = json.loads(resp.read())
+
+        for item in items:
+            if item.get("type") != "dir":
+                continue
+            name = item["name"]
+            folder_url = f"https://api.github.com/repos/The-Conos-Project/ctf-challenges/contents/challenges/{name}"
+            req2 = urllib.request.Request(folder_url, headers={"User-Agent": "CTFploy"})
+            try:
+                with urllib.request.urlopen(req2, timeout=10) as resp2:
+                    files = json.loads(resp2.read())
+            except Exception:
+                continue
+
+            md_file = next((f for f in files if f.get("name", "").endswith(".md")), None)
+            tar_file = next((f for f in files if f.get("name", "").endswith(".tar.gz")), None)
+            if not md_file or not tar_file:
+                continue
+
+            try:
+                with urllib.request.urlopen(md_file.get("download_url", ""), timeout=10) as resp3:
+                    md_content = resp3.read().decode("utf-8", errors="ignore")
+            except Exception:
+                continue
+
+            meta = _parse_md_frontmatter(md_content)
+            meta.setdefault("name", name)
+            meta.setdefault("display_name", name.replace("-", " ").title())
+            meta.setdefault("internal_port", 22)
+            meta.setdefault("connection_type", "ssh")
+            meta.setdefault("flag_type", "static")
+            meta.setdefault("flag", "flag{change_me}")
+            meta.setdefault("hints", [])
+            meta["download_url"] = tar_file.get("download_url", "")
+            challenges.append(meta)
+    except Exception:
+        pass
+    return challenges
+
+
+def _parse_md_frontmatter(text: str) -> dict:
+    meta = {}
+    if not text.startswith("---"):
+        return meta
+    end = text.find("---", 3)
+    if end == -1:
+        return meta
+    block = text[3:end].strip()
+    for line in block.splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if value.startswith("[") and value.endswith("]"):
+            value = [v.strip() for v in value[1:-1].split(",") if v.strip()]
+        meta[key] = value
+    return meta
 
 
 # ---------- STARTUP ----------
