@@ -2,6 +2,8 @@
 """
 Conos CTFploy Platform – Flask Application
 """
+import os
+
 from flask import Flask
 from config import SECRET_KEY, CHALLENGES_STORE
 from docker_ops import ensure_network
@@ -12,11 +14,8 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY
 app.register_blueprint(bp)
 
-
-@app.before_first_request
-def startup():
-    ensure_network()
-    os.makedirs(CHALLENGES_STORE, exist_ok=True)
+ensure_network()
+os.makedirs(CHALLENGES_STORE, exist_ok=True)
 
 
 if __name__ == "__main__":
