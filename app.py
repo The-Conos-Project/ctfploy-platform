@@ -3,13 +3,20 @@
 Conos CTFploy Platform – Flask Application
 """
 from flask import Flask
-from config import SECRET_KEY
+from config import SECRET_KEY, CHALLENGES_STORE
+from docker_ops import ensure_network
 from routes import bp
 
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 app.register_blueprint(bp)
+
+
+@app.before_first_request
+def startup():
+    ensure_network()
+    os.makedirs(CHALLENGES_STORE, exist_ok=True)
 
 
 if __name__ == "__main__":

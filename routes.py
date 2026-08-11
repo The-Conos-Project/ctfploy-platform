@@ -46,7 +46,3 @@ bp.add_url_rule("/admin/add_challenge_to_code", "add_challenge_to_code", add_cha
 bp.add_url_rule("/admin/delete_code/<code>", "delete_code", delete_code)
 bp.add_url_rule("/admin/update", "admin_update", admin_update, methods=["GET", "POST"])
 
-@bp.before_app_first_request
-def startup():
-    ensure_network()
-    os.makedirs(CHALLENGES_STORE, exist_ok=True)
