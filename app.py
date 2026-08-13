@@ -21,8 +21,13 @@ app.config.update(
 app.register_blueprint(bp)
 
 _init_db()
-ensure_network()
 os.makedirs(CHALLENGES_STORE, exist_ok=True)
+try:
+    ensure_network()
+except RuntimeError as exc:
+    # Keep the UI available so an administrator can see and correct a missing
+    # Docker socket rather than making the entire service return 502.
+    app.logger.warning("Docker is unavailable during startup: %s", exc)
 
 
 if __name__ == "__main__":

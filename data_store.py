@@ -74,6 +74,14 @@ def _init_db() -> None:
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -86,10 +94,25 @@ def _deserialize(value):
 
 
 def _migrate_json():
-    if os.path.exists(DATA_JSON) and not os.path.exists(DATA_DB):
-        with open(DATA_JSON) as f:
-            data = json.load(f)
-        save_data(data)
+    """Import the legacy JSON store once, even though SQLite has been initialized."""
+    if not os.path.exists(DATA_JSON):
+        return
+    _init_db()
+    with _connect() as conn:
+        migrated = conn.execute(
+            "SELECT 1 FROM settings WHERE key = 'json_migration_complete'"
+        ).fetchone()
+    if migrated:
+        return
+    with open(DATA_JSON, encoding="utf-8") as f:
+        data = json.load(f)
+    save_data(data)
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("json_migration_complete", "1"),
+        )
+        conn.commit()
 
 
 def load_data() -> dict:

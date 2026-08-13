@@ -6,11 +6,12 @@ import threading
 import time
 import uuid
 import urllib.request
-import queue
+import shutil
+import re
 from flask import redirect, request, Response, url_for
-from config import CHALLENGES_STORE
+from config import BUILD_LOGS_STORE, CHALLENGES_STORE
 from data_store import load_data, save_data
-from docker_ops import build_image_thread, terminate_instance
+from docker_ops import build_image_thread, build_log_path, terminate_instance
 from page_templates.templates import (
     admin_challenges_page,
     admin_codes_page,
@@ -35,17 +36,46 @@ def admin_challenges():
 
 @admin_required
 def import_url():
-    url = request.form["url"].strip()
+    url = request.form.get("url", "").strip()
+    if not url.startswith(("https://", "http://")):
+        return redirect(url_for("main.admin_challenges", error="Use an http:// or https:// archive URL"))
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz") as tmp:
-            urllib.request.urlretrieve(url, tmp.name)
             filepath = tmp.name
+            req = urllib.request.Request(url, headers={"User-Agent": "CTFploy/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as response:
+                total = 0
+                while chunk := response.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > 100 * 1024 * 1024:
+                        raise ValueError("Archive is larger than the 100 MB limit")
+                    tmp.write(chunk)
 
-        build_dir = f"/tmp/ctf_build_{int(time.time())}"
-        os.makedirs(build_dir, exist_ok=True)
+        build_dir = tempfile.mkdtemp(prefix="ctf_build_")
         with tarfile.open(filepath, "r:gz") as tar:
-            tar.extractall(build_dir)
+            members = tar.getmembers()
+            if len(members) > 5_000:
+                raise ValueError("Archive contains too many files")
+            for member in members:
+                destination = os.path.realpath(os.path.join(build_dir, member.name))
+                if not destination.startswith(os.path.realpath(build_dir) + os.sep):
+                    raise ValueError("Archive contains an unsafe file path")
+                if member.issym() or member.islnk() or member.isdev():
+                    raise ValueError("Archive links and device files are not allowed")
+            tar.extractall(build_dir, members=members, filter="data")
         os.unlink(filepath)
+
+        if not os.path.exists(os.path.join(build_dir, "Dockerfile")):
+            dockerfile_dirs = [
+                root
+                for root, _, files in os.walk(build_dir)
+                if "Dockerfile" in files
+            ]
+            if len(dockerfile_dirs) == 0:
+                return redirect(url_for("main.admin_challenges", error="Archive must include a Dockerfile"))
+            if len(dockerfile_dirs) > 1:
+                return redirect(url_for("main.admin_challenges", error="Archive contains multiple Dockerfiles; use a single challenge package."))
+            build_dir = dockerfile_dirs[0]
 
         metadata_path = os.path.join(build_dir, "ctfploy.json")
         meta = {}
@@ -53,13 +83,23 @@ def import_url():
             with open(metadata_path) as f:
                 meta = json.load(f)
 
-        name = meta.get("name", os.path.basename(url).replace(".tar.gz", "").replace(" ", "-").lower())
+        name = str(meta.get("name", os.path.basename(url).replace(".tar.gz", "").replace(" ", "-").lower()))
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", name):
+            raise ValueError("Challenge name must use lowercase letters, numbers, dots, underscores, or hyphens")
         display_name = meta.get("display_name", name.replace("-", " ").title())
-        internal_port = meta.get("internal_port", 22)
+        internal_port = int(meta.get("internal_port", 22))
+        if not 1 <= internal_port <= 65535:
+            raise ValueError("internal_port must be between 1 and 65535")
         connection_type = meta.get("connection_type", "ssh")
+        if connection_type not in {"ssh", "web", "nc"}:
+            raise ValueError("connection_type must be ssh, web, or nc")
         flag_type = meta.get("flag_type", "static")
+        if flag_type not in {"static", "dynamic"}:
+            raise ValueError("flag_type must be static or dynamic")
         flag = meta.get("flag", "flag{change_me}")
         hints = meta.get("hints", [])
+        if not isinstance(hints, list) or not all(isinstance(hint, str) for hint in hints):
+            raise ValueError("hints must be a list of strings")
 
         image_tag = f"ctf-{name}"
         challenge_id = str(uuid.uuid4())[:8]
@@ -78,9 +118,16 @@ def import_url():
         data = load_data()
         data["challenges"].append(challenge)
         save_data(data)
+        os.makedirs(BUILD_LOGS_STORE, exist_ok=True)
+        with open(build_log_path(challenge_id), "w", encoding="utf-8") as log:
+            log.write("Build queued...\n")
         threading.Thread(target=build_image_thread, args=(name, build_dir, image_tag, challenge_id), daemon=True).start()
         return redirect(url_for("main.build_log_view", challenge_id=challenge_id))
     except Exception as e:
+        if 'filepath' in locals() and os.path.exists(filepath):
+            os.unlink(filepath)
+        if 'build_dir' in locals() and os.path.isdir(build_dir):
+            shutil.rmtree(build_dir, ignore_errors=True)
         return redirect(url_for("main.admin_challenges", error=f"Build failed: {str(e)}"))
 
 
@@ -91,22 +138,32 @@ def build_log_view(challenge_id: str):
 
 @admin_required
 def build_log_stream(challenge_id: str):
-    from docker_ops import build_logs
-    q = build_logs.get(challenge_id)
-    if not q:
-        q = queue.Queue()
-        build_logs[challenge_id] = q
+    log_path = build_log_path(challenge_id)
 
     def generate():
-        while True:
-            line = q.get()
-            if line is None:
-                yield "data: END\n\n"
-                break
-            yield f"data: {line}\n\n"
-            time.sleep(0.05)
+        offset = 0
+        idle_polls = 0
+        while idle_polls < 3_600:  # One hour keeps an abandoned tab from leaking a worker.
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8", errors="replace") as log:
+                    log.seek(offset)
+                    chunk = log.read()
+                    offset = log.tell()
+                if chunk:
+                    idle_polls = 0
+                    for line in chunk.splitlines():
+                        yield f"data: {json.dumps(line)}\n\n"
+                    continue
+                data = load_data()
+                challenge = next((c for c in data["challenges"] if c["id"] == challenge_id), None)
+                if challenge and challenge.get("build_status") in {"success", "failed"}:
+                    yield "event: complete\ndata: done\n\n"
+                    return
+            idle_polls += 1
+            yield ": keep-alive\n\n"
+            time.sleep(1)
 
-    return Response(generate(), mimetype="text/event-stream")
+    return Response(generate(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @admin_required

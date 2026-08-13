@@ -140,9 +140,10 @@ def build_log_page(challenge_id: str):
         const logDiv = document.getElementById('log');
         evtSource.onmessage = function(event) {{
             if (event.data === 'END') {{ evtSource.close(); return; }}
-            logDiv.innerHTML += event.data;
+            logDiv.textContent += JSON.parse(event.data) + '\\n';
             logDiv.scrollTop = logDiv.scrollHeight;
         }};
+        evtSource.addEventListener('complete', function() {{ evtSource.close(); }});
         evtSource.onerror = function() {{ evtSource.close(); }};
     </script>
     """, active='terminal')

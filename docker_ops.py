@@ -1,50 +1,80 @@
-import os, time, random, uuid, threading, queue
+import os, shutil, time, uuid, threading
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 import docker
 
-from config import DOCKER_NETWORK, INSTANCE_TIMEOUT, MAX_CONCURRENT_PER_USER
+from config import BUILD_LOGS_STORE, DOCKER_NETWORK, INSTANCE_TIMEOUT, MAX_CONCURRENT_PER_USER
 from data_store import load_data, save_data
 
-docker_client = docker.from_env()
-build_logs = {}
+_docker_client = None
+_docker_lock = threading.Lock()
+
+
+def get_docker_client():
+    """Create the Docker client lazily so the web UI can start without Docker."""
+    global _docker_client
+    with _docker_lock:
+        if _docker_client is None:
+            try:
+                client = docker.from_env(timeout=5)
+                client.ping()
+                _docker_client = client
+            except Exception as exc:
+                raise RuntimeError(
+                    "Docker is unavailable. Mount /var/run/docker.sock and ensure the Docker daemon is running."
+                ) from exc
+    return _docker_client
 
 
 def ensure_network() -> None:
+    docker_client = get_docker_client()
     try:
         docker_client.networks.get(DOCKER_NETWORK)
     except docker.errors.NotFound:
         docker_client.networks.create(DOCKER_NETWORK, driver="bridge")
 
 
+def build_log_path(challenge_id: str) -> str:
+    return os.path.join(BUILD_LOGS_STORE, f"{challenge_id}.log")
+
+
 def build_image_thread(name: str, build_dir: str, tag: str, challenge_id: str) -> None:
-    q = build_logs.get(challenge_id)
-    if not q:
-        q = queue.Queue()
-        build_logs[challenge_id] = q
+    os.makedirs(BUILD_LOGS_STORE, exist_ok=True)
+    log_path = build_log_path(challenge_id)
+
+    def write_log(log, message: str) -> None:
+        log.write(message if message.endswith("\n") else f"{message}\n")
+        log.flush()
+
     try:
-        q.put("Build started...\n")
-        img, logs = docker_client.images.build(path=build_dir, tag=tag, rm=True)
-        for chunk in logs:
-            if "stream" in chunk:
-                q.put(chunk["stream"])
-            elif "error" in chunk:
-                q.put(f"ERROR: {chunk['error']}\n")
-        q.put("Build completed successfully!\n")
+        docker_client = get_docker_client()
+        with open(log_path, "a", encoding="utf-8") as log:
+            write_log(log, "Build started...")
+            _, logs = docker_client.images.build(path=build_dir, tag=tag, rm=True)
+            for chunk in logs:
+                if "stream" in chunk:
+                    write_log(log, chunk["stream"])
+                elif "error" in chunk:
+                    write_log(log, f"ERROR: {chunk['error']}")
+                elif "errorDetail" in chunk:
+                    write_log(log, f"ERROR: {chunk['errorDetail'].get('message', chunk['errorDetail'])}")
+            write_log(log, "Build completed successfully!")
         data = load_data()
         for ch in data["challenges"]:
             if ch["id"] == challenge_id:
                 ch["build_status"] = "success"
         save_data(data)
     except Exception as e:
-        q.put(f"Build failed: {str(e)}\n")
+        with open(log_path, "a", encoding="utf-8") as log:
+            write_log(log, f"Build failed: {e}")
         data = load_data()
         for ch in data["challenges"]:
             if ch["id"] == challenge_id:
                 ch["build_status"] = "failed"
         save_data(data)
     finally:
-        q.put(None)
+        # The image is now in Docker; retaining untrusted build contexts wastes disk.
+        shutil.rmtree(build_dir, ignore_errors=True)
 
 
 def _random_credentials() -> Tuple[str, str]:
@@ -59,7 +89,6 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
     if len(user_instances) >= MAX_CONCURRENT_PER_USER:
         return None, "Maximum concurrent instances reached"
 
-    port = random.randint(10000, 60000)
     image_tag = challenge["image_tag"]
     internal_port = challenge["internal_port"]
     username, password = _random_credentials()
@@ -75,17 +104,25 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
 
     container_name = f"ctf_{challenge['id']}_{int(time.time())}"
     try:
+        ensure_network()
+        docker_client = get_docker_client()
         container = docker_client.containers.run(
             f"{image_tag}:latest",
             detach=True,
             name=container_name,
-            ports={f"{internal_port}/tcp": port},
+            ports={f"{internal_port}/tcp": None},
             environment=env,
             mem_limit="512m",
             nano_cpus=int(0.5 * 1e9),
             network=DOCKER_NETWORK,
             remove=True
         )
+        container.reload()
+        bindings = container.attrs["NetworkSettings"]["Ports"].get(f"{internal_port}/tcp")
+        if not bindings:
+            container.stop(timeout=3)
+            return None, "Docker did not publish the challenge port"
+        port = int(bindings[0]["HostPort"])
     except Exception as e:
         return None, f"Docker error: {e}"
 
@@ -116,7 +153,7 @@ def terminate_instance(instance_id: str) -> bool:
     inst = next((i for i in data["instances"] if i["id"] == instance_id), None)
     if inst and inst["status"] == "running":
         try:
-            container = docker_client.containers.get(inst["container_id"])
+            container = get_docker_client().containers.get(inst["container_id"])
             container.stop(timeout=3)
         except Exception:
             pass
@@ -129,6 +166,4 @@ def terminate_instance(instance_id: str) -> bool:
 
 def auto_terminate(instance_id: str, delay: int) -> None:
     time.sleep(delay)
-    from flask import current_app
-    with current_app.app_context():
-        terminate_instance(instance_id)
+    terminate_instance(instance_id)
