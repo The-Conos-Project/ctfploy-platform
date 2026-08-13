@@ -40,6 +40,7 @@ def _init_db() -> None:
                 connection_type TEXT,
                 flag_type TEXT,
                 flag TEXT,
+                flags TEXT,
                 hints TEXT,
                 build_status TEXT
             )
@@ -69,11 +70,14 @@ def _init_db() -> None:
                 expires_at TEXT,
                 dynamic_flag TEXT,
                 flag TEXT,
+                submitted_flags TEXT,
                 username TEXT,
                 password TEXT
             )
             """
         )
+        _ensure_column(cursor, "challenges", "flags", "TEXT")
+        _ensure_column(cursor, "instances", "submitted_flags", "TEXT")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -95,6 +99,13 @@ def _init_db() -> None:
             """
         )
         conn.commit()
+
+
+def _ensure_column(cursor, table: str, column: str, definition: str) -> None:
+    """Add a column for deployments created before a schema change."""
+    columns = {row["name"] for row in cursor.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def _serialize(value):
@@ -143,6 +154,7 @@ def load_data() -> dict:
             {
                 **dict(row),
                 "hints": _deserialize(row["hints"]),
+                "flags": _deserialize(row["flags"]),
             }
             for row in cursor.execute("SELECT * FROM challenges")
         ]
@@ -154,7 +166,10 @@ def load_data() -> dict:
             }
             for row in cursor.execute("SELECT * FROM access_codes")
         ]
-        instances = [dict(row) for row in cursor.execute("SELECT * FROM instances")]
+        instances = [
+            {**dict(row), "submitted_flags": _deserialize(row["submitted_flags"])}
+            for row in cursor.execute("SELECT * FROM instances")
+        ]
         classes = [
             {**dict(row), "challenge_ids": _deserialize(row["challenge_ids"]), "member_ids": _deserialize(row["member_ids"])}
             for row in cursor.execute("SELECT * FROM classes")
@@ -191,7 +206,7 @@ def save_data(data: dict) -> None:
 
         for challenge in data.get("challenges", []):
             cursor.execute(
-                "INSERT OR REPLACE INTO challenges (id, name, display_name, image_tag, internal_port, connection_type, flag_type, flag, hints, build_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO challenges (id, name, display_name, image_tag, internal_port, connection_type, flag_type, flag, flags, hints, build_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     challenge["id"],
                     challenge["name"],
@@ -201,6 +216,7 @@ def save_data(data: dict) -> None:
                     challenge.get("connection_type"),
                     challenge.get("flag_type"),
                     challenge.get("flag"),
+                    _serialize(challenge.get("flags", [])),
                     _serialize(challenge.get("hints", [])),
                     challenge.get("build_status"),
                 ),
@@ -218,7 +234,7 @@ def save_data(data: dict) -> None:
 
         for instance in data.get("instances", []):
             cursor.execute(
-                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, container_id, container_name, host_port, connection_type, status, created_at, expires_at, dynamic_flag, flag, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, container_id, container_name, host_port, connection_type, status, created_at, expires_at, dynamic_flag, flag, submitted_flags, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     instance["id"],
                     instance.get("user_id"),
@@ -232,6 +248,7 @@ def save_data(data: dict) -> None:
                     instance.get("expires_at"),
                     instance.get("dynamic_flag"),
                     instance.get("flag"),
+                    _serialize(instance.get("submitted_flags", [])),
                     instance.get("username"),
                     instance.get("password"),
                 ),

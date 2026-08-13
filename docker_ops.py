@@ -165,6 +165,7 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
         "expires_at": (datetime.now() + timedelta(seconds=INSTANCE_TIMEOUT)).isoformat(),
         "dynamic_flag": dyn_flag,
         "flag": challenge.get("flag", ""),
+        "submitted_flags": [],
         "username": username,
         "password": password,
     }

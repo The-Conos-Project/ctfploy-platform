@@ -103,7 +103,21 @@ def import_url():
         flag_type = meta.get("flag_type", "static")
         if flag_type not in {"static", "dynamic"}:
             raise ValueError("flag_type must be static or dynamic")
-        flag = meta.get("flag", "flag{change_me}")
+        flag = meta.get("flag")
+        flags = meta.get("flags")
+        if flags is not None:
+            if flag is not None:
+                raise ValueError("Use either flag or flags, not both")
+            if not isinstance(flags, list) or not flags or not all(isinstance(item, str) and item for item in flags):
+                raise ValueError("flags must be a non-empty list of strings")
+            if len(set(flags)) != len(flags):
+                raise ValueError("flags must not contain duplicates")
+        elif flag is None:
+            flag = "flag{change_me}"
+        elif not isinstance(flag, str) or not flag:
+            raise ValueError("flag must be a non-empty string")
+        if flag_type == "dynamic" and flags is not None:
+            raise ValueError("Dynamic challenges support one generated flag; omit flags")
         hints = meta.get("hints", [])
         if not isinstance(hints, list) or not all(isinstance(hint, str) for hint in hints):
             raise ValueError("hints must be a list of strings")
@@ -119,6 +133,7 @@ def import_url():
             "connection_type": connection_type,
             "flag_type": flag_type,
             "flag": flag,
+            "flags": flags or [],
             "hints": hints,
             "build_status": "building",
         }

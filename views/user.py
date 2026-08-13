@@ -102,7 +102,11 @@ def view_instance(instance_id):
     host = request.host.split(":")[0]
     msg = request.args.get("msg") or request.args.get("success") or request.args.get("error")
     hints = challenge.get("hints", []) if challenge else []
-    return instance_page(challenge, instance, host, msg, hints)
+    expected_flags = [instance.get("dynamic_flag")] if challenge and challenge.get("flag_type") == "dynamic" else (challenge.get("flags") or [challenge.get("flag")])
+    expected_flags = [flag for flag in expected_flags if flag]
+    submitted_flags = set(instance.get("submitted_flags", []))
+    progress = (len(submitted_flags.intersection(expected_flags)), len(expected_flags))
+    return instance_page(challenge, instance, host, msg, hints, progress)
 
 
 @login_required
@@ -123,6 +127,15 @@ def submit_flag(instance_id):
 
     submitted = request.form["flag"].strip()
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
-    correct = instance.get("dynamic_flag") if challenge and challenge.get("flag_type") == "dynamic" else challenge.get("flag")
-    msg = "Correct!" if correct and submitted == correct else "Incorrect"
+    expected_flags = [instance.get("dynamic_flag")] if challenge and challenge.get("flag_type") == "dynamic" else (challenge.get("flags") or [challenge.get("flag")])
+    expected_flags = [flag for flag in expected_flags if flag]
+    if submitted not in expected_flags:
+        msg = "Incorrect"
+    elif submitted in instance.get("submitted_flags", []):
+        msg = "Already submitted"
+    else:
+        instance.setdefault("submitted_flags", []).append(submitted)
+        save_data(data)
+        completed = len(set(instance["submitted_flags"]).intersection(expected_flags))
+        msg = f"Accepted! {completed}/{len(expected_flags)} flags found"
     return redirect(url_for("main.view_instance", instance_id=instance_id, msg=msg))
