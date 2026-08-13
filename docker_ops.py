@@ -83,6 +83,24 @@ def _random_credentials() -> Tuple[str, str]:
     return username, password
 
 
+def _provision_ssh_user(container, username: str, password: str) -> None:
+    """Create the per-instance login account after an SSH image has started.
+
+    Challenge images keep their own users and files intact.  This only adds the
+    generated account advertised by the platform; images must include common
+    Linux tools (`useradd`, `chpasswd`, and `/bin/sh`) for SSH mode.
+    """
+    command = (
+        "set -eu; "
+        f"id {username} >/dev/null 2>&1 || useradd -m -s /bin/bash {username}; "
+        f"printf '%s:%s\\n' '{username}' '{password}' | chpasswd"
+    )
+    result = container.exec_run(["/bin/sh", "-c", command], user="root")
+    if result.exit_code != 0:
+        output = result.output.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(output or "could not create the generated SSH user")
+
+
 def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Optional[str]]:
     data = load_data()
     user_instances = [i for i in data["instances"] if i["user_id"] == user_id and i["status"] == "running"]
@@ -103,6 +121,7 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
     env["SSH_PASSWORD"] = password
 
     container_name = f"ctf_{challenge['id']}_{int(time.time())}"
+    container = None
     try:
         ensure_network()
         docker_client = get_docker_client()
@@ -123,7 +142,14 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
             container.stop(timeout=3)
             return None, "Docker did not publish the challenge port"
         port = int(bindings[0]["HostPort"])
+        if challenge["connection_type"] == "ssh":
+            _provision_ssh_user(container, username, password)
     except Exception as e:
+        if container is not None:
+            try:
+                container.stop(timeout=3)
+            except Exception:
+                pass
         return None, f"Docker error: {e}"
 
     instance = {

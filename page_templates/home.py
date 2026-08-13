@@ -1,18 +1,5 @@
-from page_templates.layout import centered_layout
+from page_templates.layout import centered_layout, icon
 
 
 def landing_page() -> str:
-    return centered_layout(
-        """
-        <div class="centered-page">
-            <div class="centered-container">
-                <div class="card" style="text-align:center;">
-                    <h2>Welcome to CTFploy</h2>
-                    <p>Self-hosted CTF training with URL-only challenge imports.</p>
-                    <a href="/sign-in"><button>Get Started</button></a>
-                </div>
-            </div>
-        </div>
-        """,
-        title="CTFploy"
-    )
+    return centered_layout(f'''<header class="row" style="padding:18px 7%;border-bottom:1px solid #283452"><strong style="font-size:20px">CTFploy</strong><div><a href="/sign-in"><button class="secondary">Sign in</button></a> <a href="/register"><button>Get started</button></a></div></header><section class="hero"><div class="badge">Self-hosted CTF training</div><h1>Run better security labs.</h1><p>CTFploy gives instructors a simple way to import Docker challenges, organise classes, and provide each student an isolated lab instance.</p><a href="/register"><button>Start learning</button></a><div class="grid" style="margin-top:58px;text-align:left"><div class="card">{icon('boxes')}<h3>Isolated labs</h3><p class="small-text">Each launch receives its own container and timed access.</p></div><div class="card">{icon('users')}<h3>Classes</h3><p class="small-text">Share a class code and assign the right challenges.</p></div><div class="card">{icon('terminal')}<h3>Docker powered</h3><p class="small-text">Import a challenge archive and watch its build log.</p></div></div></section><footer class="footer">CTFploy · self-hosted CTF training platform</footer>''', title="CTFploy")

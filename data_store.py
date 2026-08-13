@@ -82,6 +82,18 @@ def _init_db() -> None:
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS classes (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                join_code TEXT UNIQUE NOT NULL,
+                challenge_ids TEXT NOT NULL,
+                member_ids TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -143,11 +155,16 @@ def load_data() -> dict:
             for row in cursor.execute("SELECT * FROM access_codes")
         ]
         instances = [dict(row) for row in cursor.execute("SELECT * FROM instances")]
+        classes = [
+            {**dict(row), "challenge_ids": _deserialize(row["challenge_ids"]), "member_ids": _deserialize(row["member_ids"])}
+            for row in cursor.execute("SELECT * FROM classes")
+        ]
         return {
             "users": users,
             "challenges": challenges,
             "access_codes": access_codes,
             "instances": instances,
+            "classes": classes,
         }
 
 
@@ -159,6 +176,7 @@ def save_data(data: dict) -> None:
         cursor.execute("DELETE FROM challenges")
         cursor.execute("DELETE FROM access_codes")
         cursor.execute("DELETE FROM instances")
+        cursor.execute("DELETE FROM classes")
 
         for user in data.get("users", []):
             cursor.execute(
@@ -217,6 +235,11 @@ def save_data(data: dict) -> None:
                     instance.get("username"),
                     instance.get("password"),
                 ),
+            )
+        for classroom in data.get("classes", []):
+            cursor.execute(
+                "INSERT OR REPLACE INTO classes (id, name, join_code, challenge_ids, member_ids, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (classroom["id"], classroom["name"], classroom["join_code"], _serialize(classroom.get("challenge_ids", [])), _serialize(classroom.get("member_ids", [])), classroom["created_at"]),
             )
         conn.commit()
 

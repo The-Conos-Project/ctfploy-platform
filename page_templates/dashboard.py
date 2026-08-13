@@ -1,59 +1,14 @@
-from page_templates.layout import centered_layout
+from page_templates.layout import user_layout
 
 
-def dashboard_page(user, user_challenges, get_instance, flashes=None) -> str:
-    flash_html = ""
-    if flashes:
-        for category, message in flashes:
-            flash_html += f'<div class="flash {category}">{message}</div>'
-
-    challenge_blocks = ""
-    if user_challenges:
-        for ch in user_challenges:
-            inst = get_instance(user["id"], ch["id"])
-            if inst:
-                challenge_blocks += f"""
-                <li>
-                    <strong>{ch['display_name']}</strong>
-                    <span class="status-badge status-ready">Ready</span>
-                    <div class="small-text">Port {inst['host_port']} · <a href="/instance/{inst['id']}">View</a></div>
-                </li>
-                """
-            else:
-                challenge_blocks += f"""
-                <li>
-                    <strong>{ch['display_name']}</strong>
-                    <span class="status-badge status-ready">Ready</span>
-                    <div class="small-text"><a href="/start/{ch['id']}"><button>Start</button></a></div>
-                </li>
-                """
-    else:
-        challenge_blocks = '<li>No unlocked challenges yet. Redeem an access code to get started.</li>'
-
-    return centered_layout(f"""
-    <div class="centered-page">
-        <div class="centered-container">
-            <div class="card">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:22px;">
-                    <div>
-                        <h2>Welcome, {user['username']}</h2>
-                        <p class="small-text">Your active lab sessions are listed below.</p>
-                    </div>
-                    <a href="/logout"><button class="secondary-button">Logout</button></a>
-                </div>
-                {flash_html}
-                <div style="margin-top:18px;">
-                    <h3>Unlock a lab</h3>
-                    <form method="post" action="/user/redeem-code">
-                        <input name="code" placeholder="Access Code" required>
-                        <button type="submit">Redeem Code</button>
-                    </form>
-                </div>
-                <div class="card" style="margin-top:24px; padding:22px;">
-                    <h3>Unlocked labs</h3>
-                    <ul class="challenge-list">{challenge_blocks}</ul>
-                </div>
-            </div>
-        </div>
-    </div>
-    """, title="Dashboard - CTFploy")
+def dashboard_page(user, user_classes, user_challenges, get_instance, flashes=None) -> str:
+    flash_html = ''.join(f'<div class="flash {category}">{message}</div>' for category, message in (flashes or []))
+    class_blocks = ''.join(f'<li><strong>{c["name"]}</strong><div class="small-text">Code: <code>{c["join_code"]}</code> · {len(c["challenge_ids"])} assignment(s)</div></li>' for c in user_classes) or '<li>You have not joined a class yet.</li>'
+    challenge_blocks = ''
+    for challenge in user_challenges:
+        instance = get_instance(user['id'], challenge['id'])
+        action = f'<a href="/instance/{instance["id"]}"><button class="secondary">Open lab</button></a>' if instance else f'<a href="/start/{challenge["id"]}"><button>Start lab</button></a>'
+        challenge_blocks += f'<li><div class="row"><div><strong>{challenge["display_name"]}</strong><div class="small-text">{challenge["connection_type"].upper()} challenge</div></div>{action}</div></li>'
+    if not challenge_blocks:
+        challenge_blocks = '<li>Join a class to receive challenge assignments.</li>'
+    return user_layout(f'''<h1>Welcome back, {user['username']}</h1><p class="muted">Your CTF classes and challenge labs.</p>{flash_html}<div class="grid"><section class="card"><h3>Join a class</h3><p class="small-text">Enter the class code from your instructor.</p><form method="post" action="/user/join-class"><input name="code" placeholder="CLASS-ABC123" required><button>Join class</button></form></section><section class="card"><h3>My classes</h3><ul class="list">{class_blocks}</ul></section></div><section class="card"><h2>Assigned challenges</h2><ul class="list">{challenge_blocks}</ul></section>''')

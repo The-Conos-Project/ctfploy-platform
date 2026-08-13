@@ -33,7 +33,7 @@ def admin_challenges_page(challenges):
             {challenges_html}
         </div>
     </div>
-    """, active='terminal')
+    """, active='boxes')
 
 
 def admin_codes_page(access_codes, challenges, get_challenge, flashes=None):
@@ -84,7 +84,7 @@ def admin_codes_page(access_codes, challenges, get_challenge, flashes=None):
         </div>
         {codes_html}
     </div>
-    """, active='code_badge')
+    """, active='key')
 
 
 def admin_dashboard_page(challenges, instances, flashes=None):
@@ -94,16 +94,19 @@ def admin_dashboard_page(challenges, instances, flashes=None):
             flash_html += f'<div class="flash {category}">{message}</div>'
 
     active_count = len([i for i in instances if i['status'] == 'running'])
-    return admin_layout(f"""
-    <div class=\"content-wrapper\">
-        {flash_html}
-        <div class=\"card\">
-            <h2>Admin dashboard</h2>
-            <p>Total challenges: {len(challenges)}</p>
-            <p>Active instances: {active_count}</p>
-        </div>
-    </div>
-    """, active='dashboard')
+    ready_count = len([challenge for challenge in challenges if challenge['build_status'] == 'success'])
+    return admin_layout(f'''{flash_html}<h1>Platform overview</h1><p class="muted">Manage training classes, challenge images, and active labs.</p><div class="grid"><div class="card"><div class="small-text">Ready challenges</div><div class="stat">{ready_count}</div></div><div class="card"><div class="small-text">Active instances</div><div class="stat">{active_count}</div></div><div class="card"><div class="small-text">Imported challenges</div><div class="stat">{len(challenges)}</div></div></div>''', active='home')
+
+
+def admin_classes_page(classes, challenges, users, flashes=None):
+    flash_html = ''.join(f'<div class="flash {category}">{message}</div>' for category, message in (flashes or []))
+    options = ''.join(f'<option value="{challenge["id"]}">{challenge["display_name"]}</option>' for challenge in challenges if challenge['build_status'] == 'success') or '<option value="">No ready challenges</option>'
+    rows = ''
+    for classroom in classes:
+        members = ', '.join(user['username'] for user in users if user['id'] in classroom['member_ids']) or 'No students yet'
+        assignments = ', '.join(challenge['display_name'] for challenge in challenges if challenge['id'] in classroom['challenge_ids']) or 'No assignments'
+        rows += f'''<li><div class="row"><div><strong>{classroom['name']}</strong><div class="small-text">Join code: <code>{classroom['join_code']}</code></div><div class="small-text">Students: {members}</div><div class="small-text">Assignments: {assignments}</div></div><form method="post" action="/admin/classes/delete/{classroom['id']}"><button class="secondary">Delete</button></form></div><form method="post" action="/admin/classes/assign" class="row"><input type="hidden" name="class_id" value="{classroom['id']}"><select name="challenge_id">{options}</select><button>Assign challenge</button></form></li>'''
+    return admin_layout(f'''{flash_html}<h1>Classes</h1><p class="muted">Create a class, share its code, and assign ready challenges.</p><section class="card"><h3>Create a class</h3><form method="post" action="/admin/classes/create" class="row"><input name="name" placeholder="Linux Foundations — Group A" required><button>Create class</button></form></section><section class="card"><h2>All classes</h2><ul class="list">{rows or '<li>No classes yet.</li>'}</ul></section>''', active='users')
 
 
 def admin_update_page(flashes=None):
@@ -123,7 +126,7 @@ def admin_update_page(flashes=None):
             </form>
         </div>
     </div>
-    """, active='upload')
+    """, active='settings')
 
 
 def build_log_page(challenge_id: str):
@@ -146,4 +149,4 @@ def build_log_page(challenge_id: str):
         evtSource.addEventListener('complete', function() {{ evtSource.close(); }});
         evtSource.onerror = function() {{ evtSource.close(); }};
     </script>
-    """, active='terminal')
+    """, active='boxes')

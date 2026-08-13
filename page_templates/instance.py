@@ -1,4 +1,4 @@
-from page_templates.layout import centered_layout
+from page_templates.layout import user_layout
 
 
 def instance_page(ch, inst, host, msg, hints) -> str:
@@ -23,16 +23,14 @@ def instance_page(ch, inst, host, msg, hints) -> str:
         color = '#2ecc71' if msg == 'Correct!' else '#e74c3c'
         flash_html = f'<div class="flash" style="background:{color}; color:#000;">{msg}</div>'
 
-    return centered_layout(f"""
-    <div class="centered-page">
-        <div class="centered-container">
+    return user_layout(f"""
             <div class="card">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:18px;">
                     <div>
                         <h2>{ch['display_name']}</h2>
                         <p class="small-text">Instance ID: {inst['id']} · Expires at {inst['expires_at']}</p>
                     </div>
-                    <a href="/terminate/{inst['id']}"><button class="secondary-button">Terminate</button></a>
+                    <a href="/terminate/{inst['id']}"><button class="secondary">Terminate</button></a>
                 </div>
                 {flash_html}
                 <div style="margin-top:16px;">
@@ -49,6 +47,4 @@ def instance_page(ch, inst, host, msg, hints) -> str:
                 </div>
                 <div style="margin-top:22px;"><a href="/dashboard" class="small-text">Back to dashboard</a></div>
             </div>
-        </div>
-    </div>
-    """, title=f"{ch['display_name']} - CTFploy")
+    """, active="book")

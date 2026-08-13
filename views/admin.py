@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime
 import urllib.request
 import shutil
 import re
@@ -18,6 +19,7 @@ from page_templates.templates import (
     admin_dashboard_page,
     admin_update_page,
     build_log_page,
+    admin_classes_page,
 )
 from views.utils import admin_required, request_flash_messages
 
@@ -187,6 +189,49 @@ def admin_codes():
         return next((c for c in data["challenges"] if c["id"] == cid), None)
 
     return admin_codes_page(data["access_codes"], data["challenges"], get_challenge, flashes=request_flash_messages())
+
+
+@admin_required
+def admin_classes():
+    data = load_data()
+    return admin_classes_page(data["classes"], data["challenges"], data["users"], flashes=request_flash_messages())
+
+
+@admin_required
+def create_class():
+    name = request.form.get("name", "").strip()
+    if not name or len(name) > 80:
+        return redirect(url_for("main.admin_classes", error="Enter a class name up to 80 characters"))
+    data = load_data()
+    data["classes"].append({
+        "id": uuid.uuid4().hex[:8], "name": name,
+        "join_code": f"CLASS-{uuid.uuid4().hex[:6].upper()}",
+        "challenge_ids": [], "member_ids": [], "created_at": datetime.now().isoformat(),
+    })
+    save_data(data)
+    return redirect(url_for("main.admin_classes", success="Class created"))
+
+
+@admin_required
+def assign_challenge_to_class():
+    class_id, challenge_id = request.form.get("class_id"), request.form.get("challenge_id")
+    data = load_data()
+    classroom = next((c for c in data["classes"] if c["id"] == class_id), None)
+    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "success"), None)
+    if not classroom or not challenge:
+        return redirect(url_for("main.admin_classes", error="Choose a valid ready challenge and class"))
+    if challenge_id not in classroom["challenge_ids"]:
+        classroom["challenge_ids"].append(challenge_id)
+        save_data(data)
+    return redirect(url_for("main.admin_classes", success="Challenge assigned"))
+
+
+@admin_required
+def delete_class(class_id):
+    data = load_data()
+    data["classes"] = [c for c in data["classes"] if c["id"] != class_id]
+    save_data(data)
+    return redirect(url_for("main.admin_classes", success="Class deleted"))
 
 
 @admin_required

@@ -10,12 +10,19 @@ from views.utils import login_required, request_flash_messages
 def dashboard():
     data = load_data()
     user = get_user_by_id(session["user_id"])
+    user_classes = [c for c in data["classes"] if user["id"] in c.get("member_ids", [])]
     user_challenges = []
+    for classroom in user_classes:
+        for cid in classroom.get("challenge_ids", []):
+            ch = next((c for c in data["challenges"] if c["id"] == cid and c["build_status"] == "success"), None)
+            if ch and ch not in user_challenges:
+                user_challenges.append(ch)
+    # Preserve access granted through legacy access codes.
     for code in data["access_codes"]:
         if code["code"] in user.get("used_codes", []):
             for cid in code["challenges"]:
                 ch = next((c for c in data["challenges"] if c["id"] == cid), None)
-                if ch and ch["build_status"] == "success":
+                if ch and ch["build_status"] == "success" and ch not in user_challenges:
                     user_challenges.append(ch)
 
     instances = [i for i in data["instances"] if i["user_id"] == user["id"] and i["status"] == "running"]
@@ -24,7 +31,20 @@ def dashboard():
         return next((i for i in instances if i["user_id"] == uid and i["challenge_id"] == cid), None)
 
     flashes = request_flash_messages()
-    return dashboard_page(user, user_challenges, get_instance, flashes=flashes)
+    return dashboard_page(user, user_classes, user_challenges, get_instance, flashes=flashes)
+
+
+@login_required
+def join_class():
+    code = request.form.get("code", "").strip().upper()
+    data = load_data()
+    classroom = next((c for c in data["classes"] if c["join_code"] == code), None)
+    if not classroom:
+        return redirect(url_for("main.dashboard", error="Invalid class code"))
+    if session["user_id"] not in classroom["member_ids"]:
+        classroom["member_ids"].append(session["user_id"])
+        save_data(data)
+    return redirect(url_for("main.dashboard", success=f"Joined {classroom['name']}"))
 
 
 @login_required
@@ -59,9 +79,9 @@ def start_challenge(challenge_id):
         return redirect(url_for("main.dashboard", error="Challenge not found or not ready"))
 
     allowed = any(
-        challenge_id in code.get("challenges", []) and code["code"] in user.get("used_codes", [])
-        for code in data["access_codes"]
-    )
+        challenge_id in classroom.get("challenge_ids", []) and user["id"] in classroom.get("member_ids", [])
+        for classroom in data["classes"]
+    ) or any(challenge_id in code.get("challenges", []) and code["code"] in user.get("used_codes", []) for code in data["access_codes"])
     if not allowed:
         return redirect(url_for("main.dashboard", error="Access denied"))
 
