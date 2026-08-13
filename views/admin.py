@@ -57,8 +57,13 @@ def import_url():
             if len(members) > 5_000:
                 raise ValueError("Archive contains too many files")
             for member in members:
+                # Archives created with tar commonly contain a root `.` entry.
+                # It resolves to build_dir itself and is safe to extract.
+                if member.name in {"", ".", "./"}:
+                    continue
                 destination = os.path.realpath(os.path.join(build_dir, member.name))
-                if not destination.startswith(os.path.realpath(build_dir) + os.sep):
+                build_root = os.path.realpath(build_dir)
+                if destination != build_root and not destination.startswith(build_root + os.sep):
                     raise ValueError("Archive contains an unsafe file path")
                 if member.issym() or member.islnk() or member.isdev():
                     raise ValueError("Archive links and device files are not allowed")
