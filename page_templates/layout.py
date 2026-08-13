@@ -25,7 +25,8 @@ def layout(content: str, title="CTFploy", sidebar=None) -> str:
     if sidebar:
         links, active, subtitle = sidebar
         nav = '<aside class="sidebar"><div class="brand">CTFploy<small>' + escape(subtitle) + '</small></div><nav class="nav">' + ''.join(f'<a class="{"active" if key == active else ""}" href="{href}">{icon(key)}<span>{label}</span></a>' for key, href, label in links) + f'</nav><div class="logout"><a class="nav" href="{("/admin/logout" if subtitle == "Administrator" else "/logout")}"><span>{icon("log-out")}</span><span>Logout</span></a></div></aside>'
-    return f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(title)}</title><style>{STYLE}</style></head><body>{"<div class=\"shell\">" + nav + "<main class=\"main\">" + content + "</main></div>" if sidebar else content}</body></html>'
+    body = f'<div class="shell">{nav}<main class="main">{content}</main></div>' if sidebar else content
+    return f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(title)}</title><style>{STYLE}</style></head><body>{body}</body></html>'
 
 
 def centered_layout(content: str, title="CTFploy") -> str:
