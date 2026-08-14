@@ -13,7 +13,7 @@ from flask import redirect, request, Response, url_for
 from config import BUILD_LOGS_STORE, CHALLENGES_STORE
 from data_store import load_data, save_data, get_setting, set_setting
 from domain_ops import prepare_domain, issue_certificate, public_ip
-from docker_ops import build_image_thread, build_log_path, terminate_instance, get_docker_client
+from docker_ops import build_image_thread, build_log_path, terminate_instance
 from page_templates.templates import (
     admin_challenges_page,
     admin_dashboard_page,
@@ -336,68 +336,19 @@ def remove_challenge_from_class():
 def admin_update():
     if request.method == "POST":
         try:
-            docker_client = get_docker_client()
-
-            docker_client.images.pull("zohidjonmarufov/ctfploy-platform:main")
-
-            containers = docker_client.containers.list(filters={"label": "com.docker.compose.service=platform"})
-            if not containers:
-                return redirect(url_for("main.admin_update", error="Platform container not found"))
-
-            old_container = containers[0]
-            attrs = old_container.attrs
-
-            image_name = "zohidjonmarufov/ctfploy-platform:main"
-            name = old_container.name
-            env = attrs["Config"]["Env"]
-            labels = {k: v for k, v in attrs["Config"].get("Labels", {}).items() if k.startswith("com.docker.compose.")}
-
-            ports = attrs["NetworkSettings"]["Ports"]
-            port_bindings = {}
-            for container_port, host_ports in ports.items():
-                if host_ports:
-                    port_bindings[container_port] = [{"HostPort": host_ports[0]["HostPort"]}]
-
-            binds = []
-            for mount in attrs["Mounts"]:
-                if mount["Type"] == "bind":
-                    binds.append(f"{mount['Source']}:{mount['Destination']}:{mount.get('Mode', 'rw')}")
-                elif mount["Type"] == "volume":
-                    binds.append(f"{mount['Name']}:{mount['Destination']}")
-
-            restart_policy = attrs["HostConfig"].get("RestartPolicy", {"Name": "unless-stopped"})
-            networks = list(attrs["NetworkSettings"]["Networks"].keys())
-
-            old_container.stop()
-            old_container.remove()
-
-            host_config = docker_client.api.create_host_config(
-                binds=binds,
-                port_bindings=port_bindings,
-                restart_policy=restart_policy,
+            import subprocess
+            result = subprocess.run(
+                ["bash", "-lc", "cd /etc/ctfploy && docker compose pull && docker compose up -d --force-recreate"],
+                capture_output=True,
+                text=True,
+                check=True,
             )
-
-            new_container = docker_client.containers.create(
-                image=image_name,
-                name=name,
-                environment=env,
-                host_config=host_config,
-                labels=labels,
-            )
-
-            for network_name in networks:
-                try:
-                    network = docker_client.networks.get(network_name)
-                    network.connect(new_container)
-                except Exception:
-                    pass
-
-            new_container.start()
             return redirect(url_for("main.admin_update", success="Platform updated successfully!"))
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return redirect(url_for("main.admin_update", error=f"Update failed: {str(e)}"))
+        except subprocess.CalledProcessError as exc:
+            error_message = exc.stderr.strip() or str(exc)
+            return redirect(url_for("main.admin_update", error=f"Update failed: {error_message}"))
+        except Exception as exc:
+            return redirect(url_for("main.admin_update", error=f"Update failed: {str(exc)}"))
 
     return admin_update_page(toasts=request_toast_messages())
 
