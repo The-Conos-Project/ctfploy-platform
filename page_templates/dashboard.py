@@ -3,12 +3,12 @@ from html import escape
 from page_templates.layout import user_layout, icon
 
 
-def _flashes(flashes):
-    return ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in (flashes or []))
+def _toasts(toasts):
+    return ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in (toasts or []))
 
 
-def dashboard_page(user, user_classes, active_instances, solved_count, total_count, flashes=None) -> str:
-    flash_html = _flashes(flashes)
+def dashboard_page(user, user_classes, active_instances, solved_count, total_count, toasts=None) -> str:
+    flash_html = _toasts(toasts)
 
     active_labs_html = ''
     if active_instances:
@@ -84,15 +84,15 @@ def dashboard_page(user, user_classes, active_instances, solved_count, total_cou
     ''', active='home')
 
 
-def classes_page(classes, flashes=None) -> str:
+def classes_page(classes, toasts=None) -> str:
     items = ''.join(
         f'''<li><div class="row"><div><strong>{escape(classroom['name'])}</strong><div class="small-text">{len(classroom['challenge_ids'])} assigned challenge(s)</div></div><a href="/classes/{classroom['id']}"><button>Open class</button></a></div></li>'''
         for classroom in classes
     ) or '<li>No classes joined yet.</li>'
-    return user_layout(f'''{_flashes(flashes)}<h1>My classes</h1><p class="muted">Open a class to view only its assigned challenges.</p><section class="card"><ul class="list">{items}</ul></section>''', active='users')
+    return user_layout(f'''{_toasts(toasts)}<h1>My classes</h1><p class="muted">Open a class to view only its assigned challenges.</p><section class="card"><ul class="list">{items}</ul></section>''', active='users')
 
 
-def class_detail_page(classroom, challenges, instances, flashes=None) -> str:
+def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
     instance_by_challenge = {instance['challenge_id']: instance for instance in instances}
     rows = ''
     for challenge in challenges:
@@ -112,11 +112,11 @@ def class_detail_page(classroom, challenges, instances, flashes=None) -> str:
             badge = '<span class="status-badge status-failed">failed</span>'
             action = f'<a href="/challenges/{challenge["id"]}"><button class="secondary">Open challenge</button></a>'
         rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div>{badge}</div>{action}</div></li>'''
-    return user_layout(f'''{_flashes(flashes)}<a href="/classes" class="small-text">{icon("arrow-left")} All classes</a><h1>{escape(classroom['name'])}</h1><p class="muted">Join code: <code>{escape(classroom['join_code'])}</code></p><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users')
+    return user_layout(f'''{_toasts(toasts)}<a href="/classes" class="small-text">{icon("arrow-left")} All classes</a><h1>{escape(classroom['name'])}</h1><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users')
 
 
-def student_challenges_page(challenges, instances, solved_challenge_ids, flashes=None) -> str:
-    flash_html = _flashes(flashes)
+def student_challenges_page(challenges, instances, solved_challenge_ids, toasts=None) -> str:
+    flash_html = _toasts(toasts)
 
     rows = ''
     instance_by_challenge = {instance['challenge_id']: instance for instance in instances}
@@ -155,13 +155,13 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         return escape(hint)
 
     flags = challenge.get("flags", [])
-    flag_cards = []
+    challenge_cards = []
     for idx, spec in enumerate(flags):
         flag_name = spec.get("flag", "")
         submitted = flag_name in inst.get("submitted_flags", []) if inst else False
         status_class = "status-success" if submitted else "status-ready"
         status_text = "solved" if submitted else "ready"
-        flag_cards.append({
+        challenge_cards.append({
             "index": idx,
             "spec": spec,
             "submitted": submitted,
@@ -170,7 +170,7 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         })
 
     cards_html = ""
-    for card in flag_cards:
+    for card in challenge_cards:
         idx = card["index"]
         spec = card["spec"]
         description = escape(spec.get("description", ""))
@@ -178,28 +178,29 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         hints_list = "".join(f"<li style='margin-top:6px;'>{format_hint(h)}</li>" for h in hints)
         hints_block = f"<ul style='margin-left:18px; font-size:13px; color:#8da2ce; list-style:square;'>{hints_list}</ul>" if hints_list else ""
         flag_value = escape(spec.get("flag", ""))
+        card_class = "flag-card solved" if card["submitted"] else "flag-card"
 
         cards_html += f'''
-        <div class="flag-card" onclick="openModal({idx})" style="cursor:pointer;">
+        <div class="{card_class}" onclick="openModal({idx})" style="cursor:pointer; position:relative;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
                 <div>
-                    <strong style="font-size:15px;">Flag {idx + 1}</strong>
+                    <strong style="font-size:15px;">Challenge {idx + 1}</strong>
                     <div class="small-text" style="margin-top:4px;">{description}</div>
                 </div>
-                <span class="status-badge {card['status_class']}">{card['status_text']}</span>
+                <span class="badge-external {card['status_class']}">{card['status_text']}</span>
             </div>
         </div>
         '''
 
     flags_section = f'''
     <section class="card" style="margin-top:18px;">
-        <h3>Flags</h3>
+        <h3>Challenge Collection</h3>
         <div class="flag-grid" style="margin-top:10px;">{cards_html}</div>
     </section>
     '''
 
     modals_html = ""
-    for card in flag_cards:
+    for card in challenge_cards:
         idx = card["index"]
         spec = card["spec"]
         description = escape(spec.get("description", ""))
@@ -222,7 +223,7 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
             if submitted:
                 action_area = f'''
                 <div class="card" style="border:1px solid #164e3c; background:#0e3025; margin-top:16px;">
-                    <h4 style="margin:0; color:#8efcd4;">Flag submitted</h4>
+                    <h4 style="margin:0; color:#8efcd4;">Challenge completed</h4>
                 </div>
                 '''
             else:
@@ -244,10 +245,10 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
             <div class="modal-content" style="width:90%; max-width:640px; max-height:90vh; overflow-y:auto;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
                     <div>
-                        <strong style="font-size:18px;">Flag {idx + 1}</strong>
-                        <span class="status-badge {card['status_class']}" style="margin-left:8px;">{card['status_text']}</span>
+                        <strong style="font-size:18px;">Challenge {idx + 1}</strong>
+                        <span class="badge-external {card['status_class']}" style="position:static; margin-left:8px;">{card['status_text']}</span>
                     </div>
-                    <button class="secondary" onclick="closeModal({idx})" style="background:transparent; border:1px solid #283452; color:#aebddd;">Close</button>
+                    <button class="modal-close" onclick="closeModal({idx})">{icon("circle-x")}</button>
                 </div>
                 <p style="color:#aebddd; margin-bottom:12px;">{description}</p>
                 <div style="margin-bottom:16px;">
@@ -260,12 +261,10 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         </div>
         '''
 
-    flash_html = ''
+    toast_html = ''
     if msg:
-        color = '#0e3025' if msg.startswith('Accepted!') else '#3d1620'
-        text_color = '#8efcd4' if msg.startswith('Accepted!') else '#ffb3c1'
-        border_color = '#164e3c' if msg.startswith('Accepted!') else '#5e2230'
-        flash_html = f'<div class="flash" style="background:{color}; color:{text_color}; border: 1px solid {border_color}; font-weight: 600;">{escape(msg)}</div>'
+        kind = 'success' if msg.startswith('Accepted!') else 'error'
+        toast_html = f'<div class="flash {kind}" style="background:{("#0e3025" if kind == "success" else "#3d1620")}; color:{("#8efcd4" if kind == "success" else "#ffb3c1")}; border: 1px solid {("#164e3c" if kind == "success" else "#5e2230")}; font-weight: 600;">{escape(msg)}</div>'
 
     status = challenge.get('build_status', 'failed')
     action_card_html = ''
@@ -276,13 +275,14 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
             action_card_html = '<div class="card" style="text-align: center; padding: 32px 24px; border: 1px solid #3d131f;"><span class="status-badge status-failed" style="margin-bottom: 12px;">Build Failed</span><p class="muted small-text">This challenge could not build correctly. Please contact your administrator.</p></div>'
 
     return user_layout(f'''
-    <a href="/classes" class="small-text">&larr; Back to My Classes</a>
+    {_toasts([("success" if msg and msg.startswith("Accepted!") else "error", msg)]) if msg else ''}
+    <a href="/classes" class="small-text">{icon("arrow-left")} Back to My Classes</a>
     <div style="margin-top: 12px; margin-bottom: 24px;">
         <h1>{escape(challenge['display_name'])}</h1>
         <p class="muted" style="margin-top: 6px; font-size: 16px;">{escape(challenge.get('description', ''))}</p>
     </div>
 
-    {flash_html}
+    {toast_html}
     {action_card_html}
     {flags_section}
 

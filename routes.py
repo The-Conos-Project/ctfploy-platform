@@ -29,6 +29,7 @@ from views.admin import (
     create_class,
     assign_challenge_to_class,
     delete_class,
+    remove_challenge_from_class,
 )
 
 bp = Blueprint("main", __name__)
@@ -63,4 +64,5 @@ bp.add_url_rule("/admin/classes/<class_id>", "admin_class_detail", admin_class_d
 bp.add_url_rule("/admin/classes/create", "create_class", create_class, methods=["POST"])
 bp.add_url_rule("/admin/classes/assign", "assign_challenge_to_class", assign_challenge_to_class, methods=["POST"])
 bp.add_url_rule("/admin/classes/delete/<class_id>", "delete_class", delete_class, methods=["POST"])
+bp.add_url_rule("/admin/classes/remove_challenge", "remove_challenge_from_class", remove_challenge_from_class, methods=["POST"])
 bp.add_url_rule("/admin/update", "admin_update", admin_update, methods=["GET", "POST"])

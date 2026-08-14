@@ -1,15 +1,20 @@
-from page_templates.layout import centered_layout
+from html import escape
+
+from page_templates.layout import centered_layout, icon
 
 
 def sign_in_page(error: bool = False) -> str:
-    error_html = '<div class="flash error">Invalid credentials</div>' if error else ''
+    toasts = []
+    if error:
+        toasts.append(("error", "Invalid credentials"))
+    toast_html = ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in toasts)
     return centered_layout(f"""
     <div class="centered-page">
         <div class="centered-container">
             <div class="card">
                 <h2>CTFploy Sign In</h2>
                 <p>Access your training labs securely.</p>
-                {error_html}
+                {toast_html}
                 <form method="post">
                     <label>Username</label>
                     <input name="username" placeholder="Username" required autofocus>
@@ -25,14 +30,17 @@ def sign_in_page(error: bool = False) -> str:
 
 
 def admin_sign_in_page(error: bool = False) -> str:
-    error_html = '<div class="flash error">Invalid admin credentials</div>' if error else ''
+    toasts = []
+    if error:
+        toasts.append(("error", "Invalid admin credentials"))
+    toast_html = ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in toasts)
     return centered_layout(f"""
     <div class="centered-page">
         <div class="centered-container">
             <div class="card">
                 <h2>CTFploy Admin Sign In</h2>
                 <p>Admin username is fixed to <strong>root</strong>.</p>
-                {error_html}
+                {toast_html}
                 <form method="post">
                     <label>Username</label>
                     <input name="username" value="root" readonly>
@@ -47,14 +55,17 @@ def admin_sign_in_page(error: bool = False) -> str:
 
 
 def register_page(error: bool = False) -> str:
-    error_html = '<div class="flash error">Username already exists</div>' if error else ''
+    toasts = []
+    if error:
+        toasts.append(("error", "Username already exists"))
+    toast_html = ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in toasts)
     return centered_layout(f"""
     <div class="centered-page">
         <div class="centered-container">
             <div class="card">
                 <h2>Create a new account</h2>
                 <p>Register and start solving challenges.</p>
-                {error_html}
+                {toast_html}
                 <form method="post">
                     <label>Username</label>
                     <input name="username" placeholder="Username" required autofocus>

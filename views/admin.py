@@ -21,7 +21,7 @@ from page_templates.templates import (
     admin_classes_page,
     admin_class_detail_page,
 )
-from views.utils import admin_required, request_flash_messages
+from views.utils import admin_required, request_toast_messages
 
 
 def _normalize_flag(item):
@@ -51,13 +51,13 @@ def _normalize_flags(raw):
 @admin_required
 def admin_dashboard():
     data = load_data()
-    return admin_dashboard_page(data["challenges"], data["instances"], flashes=request_flash_messages())
+    return admin_dashboard_page(data["challenges"], data["instances"], toasts=request_toast_messages())
 
 
 @admin_required
 def admin_challenges():
     data = load_data()
-    return admin_challenges_page(data["challenges"], flashes=request_flash_messages())
+    return admin_challenges_page(data["challenges"], toasts=request_toast_messages())
 
 
 @admin_required
@@ -241,7 +241,7 @@ def delete_challenge(challenge_id: str):
 @admin_required
 def admin_classes():
     data = load_data()
-    return admin_classes_page(data["classes"], data["challenges"], data["users"], flashes=request_flash_messages())
+    return admin_classes_page(data["classes"], data["challenges"], data["users"], toasts=request_toast_messages())
 
 
 @admin_required
@@ -250,7 +250,7 @@ def admin_class_detail(class_id: str):
     classroom = next((c for c in data["classes"] if c["id"] == class_id), None)
     if not classroom:
         return redirect(url_for("main.admin_classes", error="Class not found"))
-    return admin_class_detail_page(classroom, data["challenges"], data["users"], flashes=request_flash_messages())
+    return admin_class_detail_page(classroom, data["challenges"], data["users"], toasts=request_toast_messages())
 
 
 @admin_required
@@ -290,6 +290,16 @@ def delete_class(class_id):
     return redirect(url_for("main.admin_classes", success="Class deleted"))
 
 
+@admin_required
+def remove_challenge_from_class():
+    class_id = request.form.get("class_id", "").strip()
+    challenge_id = request.form.get("challenge_id", "").strip()
+    data = load_data()
+    classroom = next((c for c in data["classes"] if c["id"] == class_id), None)
+    if classroom and challenge_id in classroom.get("challenge_ids", []):
+        classroom["challenge_ids"] = [cid for cid in classroom["challenge_ids"] if cid != challenge_id]
+        save_data(data)
+    return redirect(url_for("main.admin_class_detail", class_id=class_id, success="Challenge removed"))
 
 
 @admin_required
@@ -303,4 +313,4 @@ def admin_update():
         except Exception as e:
             return redirect(url_for("main.admin_update", error=f"Update failed: {str(e)}"))
 
-    return admin_update_page(flashes=request_flash_messages())
+    return admin_update_page(toasts=request_toast_messages())

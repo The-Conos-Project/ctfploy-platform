@@ -10,7 +10,7 @@ from page_templates.dashboard import (
     student_challenges_page,
     student_challenge_detail_page,
 )
-from views.utils import login_required, request_flash_messages
+from views.utils import login_required, request_toast_messages
 
 
 @login_required
@@ -42,8 +42,8 @@ def dashboard():
             if ch:
                 active_instances.append({"instance": inst, "challenge": ch})
 
-    flashes = request_flash_messages()
-    return dashboard_page(user, user_classes, active_instances, solved_count, len(challenges), flashes=flashes)
+    flashes = request_toast_messages()
+    return dashboard_page(user, user_classes, active_instances, solved_count, len(challenges), toasts=flashes)
 
 
 @login_required
@@ -51,7 +51,7 @@ def classes():
     data = load_data()
     user = get_user_by_id(session["user_id"])
     user_classes = [c for c in data["classes"] if user["id"] in c.get("member_ids", [])]
-    return classes_page(user_classes, flashes=request_flash_messages())
+    return classes_page(user_classes, toasts=request_toast_messages())
 
 
 @login_required
@@ -62,7 +62,7 @@ def class_detail(class_id: str):
         return redirect(url_for("main.classes", error="Class not found"))
     challenges = [c for c in data["challenges"] if c["id"] in classroom.get("challenge_ids", [])]
     instances = [i for i in data["instances"] if i["user_id"] == session["user_id"] and i["status"] == "running"]
-    return class_detail_page(classroom, challenges, instances, flashes=request_flash_messages())
+    return class_detail_page(classroom, challenges, instances, toasts=request_toast_messages())
 
 
 @login_required
@@ -90,7 +90,7 @@ def student_challenges():
                     solved_challenge_ids.add(ch["id"])
                     break
 
-    return student_challenges_page(challenges, instances, solved_challenge_ids, flashes=request_flash_messages())
+    return student_challenges_page(challenges, instances, solved_challenge_ids, toasts=request_toast_messages())
 
 
 @login_required
