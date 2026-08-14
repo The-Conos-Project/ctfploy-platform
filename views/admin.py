@@ -11,7 +11,8 @@ import shutil
 import re
 from flask import redirect, request, Response, url_for
 from config import BUILD_LOGS_STORE, CHALLENGES_STORE
-from data_store import load_data, save_data
+from data_store import load_data, save_data, get_setting, set_setting
+from domain_ops import prepare_domain, issue_certificate, public_ip
 from docker_ops import build_image_thread, build_log_path, terminate_instance
 from page_templates.templates import (
     admin_challenges_page,
@@ -20,6 +21,7 @@ from page_templates.templates import (
     build_log_page,
     admin_classes_page,
     admin_class_detail_page,
+    admin_domain_page,
 )
 from views.utils import admin_required, request_toast_messages
 
@@ -35,7 +37,20 @@ def _normalize_flag(item):
         hints = item.get("hints", [])
         if not isinstance(hints, list) or not all(isinstance(hint, str) for hint in hints):
             raise ValueError("each flag hints must be a list of strings")
-        return {"flag": flag, "description": description, "hints": hints}
+        try:
+            points = int(item["points"])
+            max_attempts = int(item["max_attempts"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("each flag must include positive integer points and max_attempts") from exc
+        if points <= 0 or max_attempts <= 0:
+            raise ValueError("each flag points and max_attempts must be positive integers")
+        return {
+            "flag": flag,
+            "description": description,
+            "hints": hints,
+            "points": points,
+            "max_attempts": max_attempts,
+        }
     raise ValueError("each flag must be a string or an object with a flag property")
 
 
@@ -46,6 +61,18 @@ def _normalize_flags(raw):
     if len({item["flag"] for item in normalized}) != len(normalized):
         raise ValueError("flags must not contain duplicates")
     return normalized
+
+
+def _normalize_credentials(raw):
+    if not isinstance(raw, dict):
+        raise ValueError("credentials must be an object with username and password")
+    username = str(raw.get("username", "")).strip()
+    password = str(raw.get("password", ""))
+    if not re.fullmatch(r"[a-z_][a-z0-9_-]{2,31}", username):
+        raise ValueError("credentials.username must be 3-32 lowercase letters, numbers, underscores, or hyphens")
+    if not password or len(password) > 128:
+        raise ValueError("credentials.password must be between 1 and 128 characters")
+    return {"username": username, "password": password}
 
 
 @admin_required
@@ -123,6 +150,7 @@ def import_url():
         description = meta.get("description", "")
         if not isinstance(description, str):
             raise ValueError("description must be a string")
+        credentials = _normalize_credentials(meta.get("credentials"))
 
         challenges_meta = meta.get("challenges", [])
         if challenges_meta:
@@ -147,6 +175,7 @@ def import_url():
                     "image_tag": f"ctf-{name}",
                     "description": ch_description,
                     "flags": normalized_flags,
+                    "credentials": credentials,
                     "build_status": "building",
                 }
                 data["challenges"].append(challenge)
@@ -164,6 +193,7 @@ def import_url():
                 "image_tag": image_tag,
                 "description": description,
                 "flags": normalized_flags,
+                "credentials": credentials,
                 "build_status": "building",
             }
             data["challenges"].append(challenge)
@@ -314,3 +344,28 @@ def admin_update():
             return redirect(url_for("main.admin_update", error=f"Update failed: {str(e)}"))
 
     return admin_update_page(toasts=request_toast_messages())
+
+
+@admin_required
+def admin_domain():
+    return admin_domain_page(get_setting("custom_domain", ""), public_ip(), toasts=request_toast_messages())
+
+
+@admin_required
+def save_domain():
+    try:
+        domain = prepare_domain(request.form.get("domain", ""))
+        set_setting("custom_domain", domain)
+        return redirect(url_for("main.admin_domain", success="DNS validation endpoint is ready. Create the A record, then issue the certificate."))
+    except Exception as exc:
+        return redirect(url_for("main.admin_domain", error=str(exc)))
+
+
+@admin_required
+def create_domain_certificate():
+    try:
+        domain = get_setting("custom_domain", "")
+        issue_certificate(domain, request.form.get("email", ""))
+        return redirect(url_for("main.admin_domain", success="Certificate issued and HTTPS enabled."))
+    except Exception as exc:
+        return redirect(url_for("main.admin_domain", error=f"Certificate request failed: {exc}"))

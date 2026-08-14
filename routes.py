@@ -25,6 +25,9 @@ from views.admin import (
     delete_challenge,
     admin_class_detail,
     admin_update,
+    admin_domain,
+    save_domain,
+    create_domain_certificate,
     admin_classes,
     create_class,
     assign_challenge_to_class,
@@ -66,3 +69,6 @@ bp.add_url_rule("/admin/classes/assign", "assign_challenge_to_class", assign_cha
 bp.add_url_rule("/admin/classes/delete/<class_id>", "delete_class", delete_class, methods=["POST"])
 bp.add_url_rule("/admin/classes/remove_challenge", "remove_challenge_from_class", remove_challenge_from_class, methods=["POST"])
 bp.add_url_rule("/admin/update", "admin_update", admin_update, methods=["GET", "POST"])
+bp.add_url_rule("/admin/domain", "admin_domain", admin_domain)
+bp.add_url_rule("/admin/domain", "save_domain", save_domain, methods=["POST"])
+bp.add_url_rule("/admin/domain/certificate", "create_domain_certificate", create_domain_certificate, methods=["POST"])

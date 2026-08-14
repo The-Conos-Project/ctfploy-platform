@@ -1,6 +1,7 @@
 from html import escape
 
 from page_templates.layout import user_layout, icon
+from challenge_meta import total_points
 
 
 def dashboard_page(user, user_classes, active_instances, solved_count, total_count, toasts=None) -> str:
@@ -104,7 +105,7 @@ def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
         else:
             badge = '<span class="status-badge status-failed">failed</span>'
             action = f'<a href="/challenges/{challenge["id"]}"><button class="secondary">Open challenge</button></a>'
-        rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div>{badge}</div>{action}</div></li>'''
+        rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div><div class="small-text">{total_points(challenge)} points</div>{badge}</div>{action}</div></li>'''
     return user_layout(f'''<a href="/classes" class="small-text">{icon("arrow-left")} All classes</a><h1>{escape(classroom['name'])}</h1><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users', toasts=toasts)
 
 
@@ -124,7 +125,7 @@ def student_challenges_page(challenges, instances, solved_challenge_ids, toasts=
             badge_html = f'<span class="status-badge status-{status}">{status}</span>'
 
         action = f'<a href="/challenges/{challenge["id"]}"><button class="secondary">Open challenge</button></a>'
-        rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div>{badge_html}</div>{action}</div></li>'''
+        rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div><div class="small-text">{total_points(challenge)} points</div>{badge_html}</div>{action}</div></li>'''
 
     return user_layout(f'''
     <h1>All Assigned Challenges</h1>
@@ -135,7 +136,7 @@ def student_challenges_page(challenges, instances, solved_challenge_ids, toasts=
     ''', active='users', toasts=toasts)
 
 
-def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -> str:
+def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining=None, expires_at=None) -> str:
     def format_hint(hint: str) -> str:
         stripped = hint.strip()
         command_prefixes = ('$', 'ssh ', 'curl ', 'nc ', 'cat ', 'ls ', 'find ', 'grep ', 'tar ', 'sudo ', 'chmod ', 'ps ', 'netstat ', 'ss ', 'echo ', 'export ', 'python', 'pip', 'nano ', 'vim ', 'vi ', 'touch ', 'mkdir ', 'cd ', 'pwd', 'whoami', 'id', 'file ', 'head ', 'tail ', 'less ', 'more ', 'wc ', 'sort ', 'uniq ', 'awk ', 'sed ', 'cut ', 'tr ', 'xargs ', 'jq ')
@@ -145,6 +146,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -
         return escape(hint)
 
     flags = challenge.get("flags", [])
+    attempts_remaining = attempts_remaining or {}
     challenge_cards = []
     for idx, spec in enumerate(flags):
         flag_name = spec.get("flag", "")
@@ -169,6 +171,8 @@ def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -
         hints_block = f"<ul style='margin-left:18px; font-size:13px; color:#8da2ce; list-style:square;'>{hints_list}</ul>" if hints_list else ""
         flag_value = escape(spec.get("flag", ""))
         card_class = "flag-card solved" if card["submitted"] else "flag-card"
+        remaining = attempts_remaining.get(idx, spec.get("max_attempts", 3))
+        points = spec.get("points", 100)
 
         cards_html += f'''
         <div class="{card_class}" onclick="openModal({idx})" style="cursor:pointer; position:relative;">
@@ -176,6 +180,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -
                 <div>
                     <strong style="font-size:15px;">Challenge {idx + 1}</strong>
                     <div class="small-text" style="margin-top:4px;">{description}</div>
+                    <div class="small-text" style="margin-top:4px;">{points} points · {remaining}/{spec.get("max_attempts", 3)} attempts remaining</div>
                 </div>
                 <span class="badge-external {card['status_class']}">{card['status_text']}</span>
             </div>
@@ -199,6 +204,8 @@ def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -
         hints_block = f"<ul style='margin-left:18px; font-size:13px; color:#8da2ce; list-style:square;'>{hints_list}</ul>" if hints_list else ""
         flag_value = escape(spec.get("flag", ""))
         submitted = card["submitted"]
+        remaining = attempts_remaining.get(idx, spec.get("max_attempts", 3))
+        points = spec.get("points", 100)
 
         if inst:
             connection = f'''
@@ -219,17 +226,19 @@ def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -
                     <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230;">Terminate Lab</button>
                 </form>
                 '''
-            else:
+            elif remaining > 0:
                 action_area = f'''
                 <form method="post" action="/submit_flag/{inst['id']}" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px;">
                     <input type="hidden" name="flag_index" value="{idx}">
-                    <input name="flag" placeholder="flag{{...}}" required style="flex:1; min-width:240px; margin:0; font-family:inherit;">
+                    <input name="flag" placeholder="CN{{...}}" required style="flex:1; min-width:240px; margin:0; font-family:inherit;">
                     <button type="submit" style="font-family:inherit;">Submit Flag</button>
                 </form>
                 <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('Terminate this lab?')" style="margin-top:10px;">
                     <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-size:12px; padding:6px 12px; font-family:inherit;">Terminate Lab</button>
                 </form>
                 '''
+            else:
+                action_area = '<div class="card" style="border:1px solid #5e2230; background:#3d131f; margin-top:16px;"><h4 style="margin:0; color:#ffb3c1;">No attempts remaining</h4></div>'
         else:
             connection = ""
             action_area = f'''
@@ -311,6 +320,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -
     <div style="margin-top: 12px; margin-bottom: 24px;">
         <h1>{escape(challenge['display_name'])}</h1>
         <p class="muted" style="margin-top: 6px; font-size: 16px;">{escape(challenge.get('description', ''))}</p>
+        <p class="small-text" style="margin-top: 6px;">{total_points(challenge)} points available</p>
     </div>
 
     {countdown_html}
@@ -372,10 +382,14 @@ def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -
     ''', active='users', toasts=toasts_list)
 
 
-def leaderboard_page(challenges, rows) -> str:
+def leaderboard_page(entries) -> str:
+    rows = ''.join(
+        f'''<li><div class="row"><strong>#{index} {escape(entry["username"])}</strong><div style="text-align:right;"><strong>{entry["points"]} points</strong><div class="small-text">{entry["solved"]} challenge(s) solved</div></div></div></li>'''
+        for index, entry in enumerate(entries, start=1)
+    ) or '<li>No scores yet.</li>'
     return user_layout(f'''
     <h1>Leaderboard</h1>
-    <p class="muted">See who has solved each challenge.</p>
+    <p class="muted">Ranked by points earned from submitted flags.</p>
     <section class="card">
         <ul class="list">{rows}</ul>
     </section>

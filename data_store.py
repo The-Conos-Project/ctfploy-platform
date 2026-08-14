@@ -37,6 +37,7 @@ def _init_db() -> None:
                 description TEXT,
                 image_tag TEXT,
                 flags TEXT,
+                credentials TEXT,
                 build_status TEXT
             )
             """
@@ -58,6 +59,7 @@ def _init_db() -> None:
                 dynamic_flag TEXT,
                 flag TEXT,
                 submitted_flags TEXT,
+                attempt_counts TEXT,
                 username TEXT,
                 password TEXT
             )
@@ -65,7 +67,9 @@ def _init_db() -> None:
         )
         _ensure_column(cursor, "challenges", "flags", "TEXT")
         _ensure_column(cursor, "challenges", "description", "TEXT")
+        _ensure_column(cursor, "challenges", "credentials", "TEXT")
         _ensure_column(cursor, "instances", "submitted_flags", "TEXT")
+        _ensure_column(cursor, "instances", "attempt_counts", "TEXT")
         _ensure_column(cursor, "instances", "flag_index", "INTEGER DEFAULT 0")
         cursor.execute(
             """
@@ -142,11 +146,16 @@ def load_data() -> dict:
             {
                 **dict(row),
                 "flags": _deserialize(row["flags"]),
+                "credentials": _deserialize(row["credentials"]),
             }
             for row in cursor.execute("SELECT * FROM challenges")
         ]
         instances = [
-            {**dict(row), "submitted_flags": _deserialize(row["submitted_flags"])}
+            {
+                **dict(row),
+                "submitted_flags": _deserialize(row["submitted_flags"]),
+                "attempt_counts": _deserialize(row["attempt_counts"]),
+            }
             for row in cursor.execute("SELECT * FROM instances")
         ]
         classes = [
@@ -182,7 +191,7 @@ def save_data(data: dict) -> None:
 
         for challenge in data.get("challenges", []):
             cursor.execute(
-                "INSERT OR REPLACE INTO challenges (id, name, display_name, description, image_tag, flags, build_status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO challenges (id, name, display_name, description, image_tag, flags, credentials, build_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     challenge["id"],
                     challenge["name"],
@@ -190,13 +199,14 @@ def save_data(data: dict) -> None:
                     challenge.get("description", ""),
                     challenge.get("image_tag"),
                     _serialize(challenge.get("flags", [])),
+                    _serialize(challenge.get("credentials", {})),
                     challenge.get("build_status"),
                 ),
             )
 
         for instance in data.get("instances", []):
             cursor.execute(
-                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, flag_index, container_id, container_name, host_port, connection_type, status, created_at, expires_at, dynamic_flag, flag, submitted_flags, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, flag_index, container_id, container_name, host_port, connection_type, status, created_at, expires_at, dynamic_flag, flag, submitted_flags, attempt_counts, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     instance["id"],
                     instance.get("user_id"),
@@ -212,6 +222,7 @@ def save_data(data: dict) -> None:
                     instance.get("dynamic_flag"),
                     instance.get("flag"),
                     _serialize(instance.get("submitted_flags", [])),
+                    _serialize(instance.get("attempt_counts", {})),
                     instance.get("username"),
                     instance.get("password"),
                 ),
@@ -263,3 +274,20 @@ def get_user_by_id(uid: str, data: Optional[dict] = None) -> Optional[dict]:
             return None
         user = dict(row)
         return user
+
+
+def get_setting(key: str, default=None):
+    _init_db()
+    with _connect() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return json.loads(row["value"]) if row else default
+
+
+def set_setting(key: str, value) -> None:
+    _init_db()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (key, _serialize(value)),
+        )
+        conn.commit()

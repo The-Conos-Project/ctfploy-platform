@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py config.py data_store.py docker_ops.py challenge_meta.py routes.py ./
+COPY app.py config.py data_store.py docker_ops.py domain_ops.py challenge_meta.py routes.py ./
 COPY views ./views
 COPY page_templates ./page_templates
 RUN mkdir -p /data

@@ -41,6 +41,11 @@ def admin_update_page(toasts=None):
     return admin_layout(f'''<section class="card"><h2>Update platform</h2><p>Pull the latest image and restart the platform container.</p><form method="post"><button style="font-family:inherit;">Update now</button></form></section>''', active='settings', toasts=toasts)
 
 
+def admin_domain_page(domain, public_ip, toasts=None):
+    domain = escape(domain or "")
+    return admin_layout(f'''<section class="card"><h1>Custom domain</h1><p class="muted">Use your domain for the platform and SSH commands (with each lab's displayed port).</p><form method="post" action="/admin/domain"><label>Domain</label><input name="domain" placeholder="ctf.example.com" value="{domain}" required><button>Save domain and prepare DNS validation</button></form></section><section class="card"><h3>DNS record to create</h3><p class="small-text">At your DNS provider, create this record, wait for propagation, then issue the certificate below.</p><div class="command">Type: A\nHost/Name: {domain or 'ctf'}\nValue: {escape(public_ip)}\nTTL: Auto</div></section><section class="card"><h3>Issue Let’s Encrypt certificate</h3><form method="post" action="/admin/domain/certificate"><input type="hidden" name="domain" value="{domain}"><label>Certificate email</label><input name="email" type="email" required><button>Verify DNS and enable HTTPS</button></form></section>''', active='terminal', toasts=toasts)
+
+
 def build_log_page(challenge_id: str, class_id: Optional[str] = None):
     back_url = f"/admin/classes/{class_id}" if class_id else "/admin/challenges"
     back_label = "Back to Class" if class_id else "Back to Challenges"

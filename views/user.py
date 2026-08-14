@@ -2,13 +2,14 @@ from html import escape
 from flask import redirect, request, session, url_for
 from data_store import get_user_by_id, load_data, save_data
 from docker_ops import create_container, terminate_instance
-from challenge_meta import flag_specs, flag_values
+from challenge_meta import flag_specs, flag_values, total_points
 from page_templates.dashboard import (
     dashboard_page,
     classes_page,
     class_detail_page,
     student_challenges_page,
     student_challenge_detail_page,
+    leaderboard_page,
 )
 from views.utils import login_required, request_toast_messages
 
@@ -117,7 +118,22 @@ def student_challenge_detail(challenge_id: str):
     msg = request.args.get("msg") or request.args.get("success") or request.args.get("error")
     host = request.host.split(":")[0]
 
-    return student_challenge_detail_page(challenge, instance, host, msg, expires_at=instance.get("expires_at") if instance else None)
+    attempts_remaining = {}
+    for index, spec in enumerate(flag_specs(challenge)):
+        used = sum(
+            int((item.get("attempt_counts") or {}).get(str(index), 0))
+            for item in data["instances"]
+            if item.get("user_id") == user["id"] and item.get("challenge_id") == challenge_id
+        )
+        attempts_remaining[index] = max(0, spec["max_attempts"] - used)
+    return student_challenge_detail_page(
+        challenge,
+        instance,
+        host,
+        msg,
+        attempts_remaining=attempts_remaining,
+        expires_at=instance.get("expires_at") if instance else None,
+    )
 
 
 @login_required
@@ -184,20 +200,24 @@ def leaderboard():
         assigned_challenge_ids.update(c.get("challenge_ids", []))
     challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
 
-    rows = ''
-    for ch in challenges:
-        expected_flags = {f["flag"] for f in ch.get("flags", [])}
-        solvers = []
+    scores = {}
+    for participant in data["users"]:
+        submitted_by_challenge = {}
         for inst in data["instances"]:
-            if inst["challenge_id"] == ch["id"] and inst["status"] == "running":
-                submitted = set(inst.get("submitted_flags", []))
-                if expected_flags.issubset(submitted):
-                    solver = get_user_by_id(inst["user_id"])
-                    if solver:
-                        solvers.append(solver["username"])
-        solvers_html = ", ".join(escape(s) for s in solvers) if solvers else '<span class="small-text">No solvers yet</span>'
-        rows += f'''<li><div class="row"><div><strong>{escape(ch['display_name'])}</strong><div class="small-text">{escape(ch.get('description', ''))}</div></div><div style="text-align:right;">{solvers_html}</div></div></li>'''
-    return leaderboard_page(challenges, rows or '<li>No challenges assigned yet.</li>')
+            if inst.get("user_id") == participant["id"] and inst.get("challenge_id") in assigned_challenge_ids:
+                submitted_by_challenge.setdefault(inst["challenge_id"], set()).update(inst.get("submitted_flags", []))
+        points = 0
+        solved = 0
+        for challenge in challenges:
+            solved_flags = submitted_by_challenge.get(challenge["id"], set())
+            awarded = [spec for spec in flag_specs(challenge) if spec["flag"] in solved_flags]
+            points += sum(spec["points"] for spec in awarded)
+            if len(awarded) == len(flag_specs(challenge)) and awarded:
+                solved += 1
+        if points:
+            scores[participant["id"]] = {"username": participant["username"], "points": points, "solved": solved}
+    ordered = sorted(scores.values(), key=lambda row: (-row["points"], -row["solved"], row["username"].lower()))
+    return leaderboard_page(ordered)
 
 
 @login_required
@@ -209,6 +229,7 @@ def submit_flag(instance_id):
 
     submitted = request.form["flag"].strip()
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
+    specs = flag_specs(challenge)
     expected_flags = flag_values(challenge, instance.get("dynamic_flag"))
 
     flag_index = request.form.get("flag_index")
@@ -217,10 +238,14 @@ def submit_flag(instance_id):
             idx = int(flag_index)
             if idx < 0 or idx >= len(expected_flags):
                 msg = "Invalid flag"
-            elif submitted != expected_flags[idx]:
-                msg = "Incorrect"
             elif submitted in instance.get("submitted_flags", []):
                 msg = "Already submitted"
+            elif idx < len(specs) and _attempts_used(data, session["user_id"], challenge["id"], idx) >= specs[idx]["max_attempts"]:
+                msg = "No attempts remaining for this flag"
+            elif submitted != expected_flags[idx]:
+                _record_attempt(instance, idx)
+                save_data(data)
+                msg = "Incorrect"
             else:
                 instance.setdefault("submitted_flags", []).append(submitted)
                 save_data(data)
@@ -229,13 +254,19 @@ def submit_flag(instance_id):
         except ValueError:
             msg = "Invalid flag index"
     else:
-        if submitted not in expected_flags:
-            msg = "Incorrect"
-        elif submitted in instance.get("submitted_flags", []):
-            msg = "Already submitted"
-        else:
-            instance.setdefault("submitted_flags", []).append(submitted)
-            save_data(data)
-            completed = len(set(instance["submitted_flags"]).intersection(expected_flags))
-            msg = f"Accepted! {completed}/{len(expected_flags)} flags found"
+        msg = "Invalid flag index"
     return redirect(url_for("main.view_instance", instance_id=instance_id, msg=msg))
+
+
+def _attempts_used(data: dict, user_id: str, challenge_id: str, flag_index: int) -> int:
+    return sum(
+        int((instance.get("attempt_counts") or {}).get(str(flag_index), 0))
+        for instance in data["instances"]
+        if instance.get("user_id") == user_id and instance.get("challenge_id") == challenge_id
+    )
+
+
+def _record_attempt(instance: dict, flag_index: int) -> None:
+    counts = instance.setdefault("attempt_counts", {})
+    key = str(flag_index)
+    counts[key] = int(counts.get(key, 0)) + 1

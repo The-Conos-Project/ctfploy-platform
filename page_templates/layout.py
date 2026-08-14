@@ -64,7 +64,7 @@ def centered_layout(content: str, title="CTFploy", toasts=None) -> str:
 
 
 def admin_layout(content, active="home", toasts=None):
-    return layout(content, "CTFploy Admin", ([('home','/admin','Overview'),('users','/admin/classes','Classes'),('boxes','/admin/challenges','Challenges'),('settings','/admin/update','Update')], active, 'Administrator'), toasts=toasts)
+    return layout(content, "CTFploy Admin", ([('home','/admin','Overview'),('users','/admin/classes','Classes'),('boxes','/admin/challenges','Challenges'),('terminal','/admin/domain','Domain'),('settings','/admin/update','Update')], active, 'Administrator'), toasts=toasts)
 
 
 def user_layout(content, active="home", toasts=None):

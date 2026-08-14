@@ -11,8 +11,23 @@ def flag_specs(challenge: dict) -> list[dict]:
                 "flag": item["flag"],
                 "description": str(item.get("description", "")),
                 "hints": item.get("hints", []) if isinstance(item.get("hints", []), list) else [],
+                "points": _positive_int(item.get("points"), 100),
+                "max_attempts": _positive_int(item.get("max_attempts"), 3),
             })
     return specs
+
+
+def _positive_int(value, default: int) -> int:
+    """Return a positive metadata value while keeping existing imports usable."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
+def total_points(challenge: dict) -> int:
+    return sum(spec["points"] for spec in flag_specs(challenge))
 
 
 def flag_values(challenge: dict, dynamic_flag: str | None = None) -> list[str]:
@@ -20,4 +35,3 @@ def flag_values(challenge: dict, dynamic_flag: str | None = None) -> list[str]:
     if dynamic_flag:
         flags.append(dynamic_flag)
     return flags
-

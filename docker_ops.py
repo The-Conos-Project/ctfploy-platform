@@ -90,17 +90,11 @@ def build_image_thread(name: str, build_dir: str, tag: str, challenge_ids: list,
         shutil.rmtree(build_dir, ignore_errors=True)
 
 
-def _random_credentials() -> Tuple[str, str]:
-    username = f"ctf_{uuid.uuid4().hex[:8]}"
-    password = uuid.uuid4().hex[:12]
-    return username, password
-
-
 def _package_name(image_tag: str) -> str:
     return image_tag[4:] if image_tag.startswith("ctf-") else image_tag
 
 
-def _instance_environment(challenge: dict, username: str, password: str) -> dict:
+def _instance_environment(challenge: dict) -> dict:
     """Build container env vars.
 
     setup.sh treats an empty CHALLENGE_NAME as "set up the full lab". The
@@ -109,10 +103,12 @@ def _instance_environment(challenge: dict, username: str, password: str) -> dict
     Only pass CHALLENGE_NAME for a per-station variant whose name differs
     from the image package.
     """
-    env = {
-        "SSH_USER": username,
-        "SSH_PASSWORD": password,
-    }
+    credentials = challenge.get("credentials") or {}
+    username = str(credentials.get("username") or "").strip()
+    password = str(credentials.get("password") or "")
+    if not username or not password:
+        raise RuntimeError("Challenge credentials are missing. Re-import a package with credentials.username and credentials.password.")
+    env = {"CTF_USER": username, "CTF_PASSWORD": password}
     challenge_name = str(challenge.get("name") or "").strip()
     package = _package_name(challenge.get("image_tag") or "")
     if challenge_name and challenge_name != package:
@@ -218,9 +214,10 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
         return None, "Maximum concurrent instances reached"
 
     image_tag = challenge["image_tag"]
-    username, password = _random_credentials()
-
-    env = _instance_environment(challenge, username, password)
+    credentials = challenge.get("credentials") or {}
+    username = str(credentials.get("username") or "")
+    password = str(credentials.get("password") or "")
+    env = _instance_environment(challenge)
     dyn_flag = None
     if challenge.get("flag_type") == "dynamic":
         dyn_flag = f"flag{{{uuid.uuid4()}}}"
@@ -295,6 +292,7 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
         "dynamic_flag": dyn_flag,
         "flag": challenge.get("flag", ""),
         "submitted_flags": [],
+        "attempt_counts": {},
         "username": username,
         "password": password,
     }
