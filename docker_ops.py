@@ -164,16 +164,20 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
             mem_limit="512m",
             nano_cpus=int(0.5 * 1e9),
             network=DOCKER_NETWORK,
-            remove=True
+            remove=False,
         )
-        for _ in range(10):
+        for _ in range(20):
             time.sleep(1)
-            container.reload()
+            try:
+                container.reload()
+            except docker.errors.NotFound:
+                break
             if container.status == "running":
                 break
         else:
+            logs = ""
             try:
-                logs = container.logs(tail=50).decode("utf-8", errors="replace")
+                logs = container.logs(tail=80).decode("utf-8", errors="replace")
             except Exception:
                 logs = "unavailable"
             try:
@@ -181,9 +185,30 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
             except Exception:
                 pass
             return None, f"Container failed to start; check the challenge image and build logs. Logs: {logs}"
+
+        try:
+            container.reload()
+        except docker.errors.NotFound:
+            try:
+                logs = container.logs(tail=80).decode("utf-8", errors="replace")
+            except Exception:
+                logs = "unavailable"
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
+            return None, f"Container disappeared before SSH user could be created. Logs: {logs}"
+
         bindings = container.attrs["NetworkSettings"]["Ports"].get(f"{internal_port}/tcp")
         if not bindings:
-            container.stop(timeout=3)
+            try:
+                container.stop(timeout=3)
+            except Exception:
+                pass
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
             return None, "Docker did not publish the challenge port"
         port = int(bindings[0]["HostPort"])
         if connection_type == "ssh":
@@ -194,7 +219,15 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
                     container.stop(timeout=3)
                 except Exception:
                     pass
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
                 return None, str(exc)
+        try:
+            container.remove(force=True)
+        except Exception:
+            pass
     except Exception as e:
         if container is not None:
             try:
