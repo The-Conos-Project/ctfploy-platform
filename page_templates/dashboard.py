@@ -215,7 +215,11 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 <span class="terminal-cmd" id="modal-ssh-cmd-{idx}">ssh {escape(inst["username"])}@{escape(host)} -p {inst["host_port"]}</span>
                 <button class="copy-btn" onclick="copyText('modal-ssh-cmd-{idx}', this)">Copy</button>
             </div>
-            <p style="margin-top:8px;">Password: <code class="inline-code" id="modal-ssh-passwd-{idx}" style="user-select:all;">{escape(inst["password"])}</code> <button class="copy-btn" style="padding:2px 6px; font-size:10px; margin-left:6px;" onclick="copyText('modal-ssh-passwd-{idx}', this)">Copy</button></p>
+            <p class="small-text" style="margin-top:10px; margin-bottom:4px;">Password:</p>
+            <div class="terminal-snippet">
+                <span class="terminal-cmd" id="modal-ssh-passwd-{idx}" style="user-select:all; color:#ffd77a;">{escape(inst["password"])}</span>
+                <button class="copy-btn" onclick="copyText('modal-ssh-passwd-{idx}', this)">Copy</button>
+            </div>
             '''
             if submitted:
                 action_area = f'''
