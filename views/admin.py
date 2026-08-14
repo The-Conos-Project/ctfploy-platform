@@ -67,6 +67,7 @@ def import_url():
     if not url.startswith(("https://", "http://")):
         return redirect(url_for("main.admin_challenges", error="Use an http:// or https:// archive URL"))
     try:
+        data = load_data()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz") as tmp:
             filepath = tmp.name
             req = urllib.request.Request(url, headers={"User-Agent": "CTFploy/1.0"})
