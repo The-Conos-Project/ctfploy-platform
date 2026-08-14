@@ -33,8 +33,7 @@ def register():
         new_user = {
             "id": str(uuid.uuid4())[:8],
             "username": username,
-            "password_hash": hash_password(password),
-            "used_codes": []
+            "password_hash": hash_password(password)
         }
         data["users"].append(new_user)
         save_data(data)

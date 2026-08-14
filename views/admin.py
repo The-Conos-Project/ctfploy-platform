@@ -15,11 +15,11 @@ from data_store import load_data, save_data
 from docker_ops import build_image_thread, build_log_path, terminate_instance
 from page_templates.templates import (
     admin_challenges_page,
-    admin_codes_page,
     admin_dashboard_page,
     admin_update_page,
     build_log_page,
     admin_classes_page,
+    admin_class_detail_page,
 )
 from views.utils import admin_required, request_flash_messages
 
@@ -39,6 +39,7 @@ def admin_challenges():
 @admin_required
 def import_url():
     url = request.form.get("url", "").strip()
+    class_id = request.form.get("class_id", "").strip() or None
     if not url.startswith(("https://", "http://")):
         return redirect(url_for("main.admin_challenges", error="Use an http:// or https:// archive URL"))
     try:
@@ -94,78 +95,118 @@ def import_url():
         if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", name):
             raise ValueError("Challenge name must use lowercase letters, numbers, dots, underscores, or hyphens")
         display_name = meta.get("display_name", name.replace("-", " ").title())
-        internal_port = int(meta.get("internal_port", 22))
-        if not 1 <= internal_port <= 65535:
-            raise ValueError("internal_port must be between 1 and 65535")
-        connection_type = meta.get("connection_type", "ssh")
-        if connection_type not in {"ssh", "web", "nc"}:
-            raise ValueError("connection_type must be ssh, web, or nc")
-        flag_type = meta.get("flag_type", "static")
-        if flag_type not in {"static", "dynamic"}:
-            raise ValueError("flag_type must be static or dynamic")
-        flag = meta.get("flag")
-        flags = meta.get("flags")
-        if flags is not None:
-            if flag is not None:
-                raise ValueError("Use either flag or flags, not both")
-            if not isinstance(flags, list) or not flags or not all(isinstance(item, str) and item for item in flags):
-                raise ValueError("flags must be a non-empty list of strings")
-            if len(set(flags)) != len(flags):
-                raise ValueError("flags must not contain duplicates")
-        elif flag is None:
-            flag = "flag{change_me}"
-        elif not isinstance(flag, str) or not flag:
-            raise ValueError("flag must be a non-empty string")
-        if flag_type == "dynamic" and flags is not None:
-            raise ValueError("Dynamic challenges support one generated flag; omit flags")
-        hints = meta.get("hints", [])
-        if not isinstance(hints, list) or not all(isinstance(hint, str) for hint in hints):
-            raise ValueError("hints must be a list of strings")
+        description = meta.get("description", "")
+        if not isinstance(description, str):
+            raise ValueError("description must be a string")
 
-        image_tag = f"ctf-{name}"
-        challenge_id = str(uuid.uuid4())[:8]
-        challenge = {
-            "id": challenge_id,
-            "name": name,
-            "display_name": display_name,
-            "image_tag": image_tag,
-            "internal_port": internal_port,
-            "connection_type": connection_type,
-            "flag_type": flag_type,
-            "flag": flag,
-            "flags": flags or [],
-            "hints": hints,
-            "build_status": "building",
-        }
-        data = load_data()
-        data["challenges"].append(challenge)
+        challenges_meta = meta.get("challenges", [])
+        if challenges_meta:
+            challenge_ids = []
+            for ch_meta in challenges_meta:
+                ch_name = str(ch_meta.get("name", ""))
+                if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", ch_name):
+                    raise ValueError(f"Challenge name must use lowercase letters, numbers, dots, underscores, or hyphens: {ch_name}")
+                ch_display_name = ch_meta.get("display_name", ch_name.replace("-", " ").title())
+                ch_description = ch_meta.get("description", "")
+                if not isinstance(ch_description, str):
+                    raise ValueError("each challenge description must be a string")
+                ch_flags = ch_meta.get("flags")
+                if not isinstance(ch_flags, list) or not ch_flags:
+                    raise ValueError(f"each challenge must have a non-empty flags list: {ch_name}")
+                normalized_flags = []
+                for item in ch_flags:
+                    if not isinstance(item, dict) or not isinstance(item.get("flag"), str) or not item["flag"]:
+                        raise ValueError(f"each flag must include a non-empty flag property: {ch_name}")
+                    item_description = item.get("description", "")
+                    item_hints = item.get("hints", [])
+                    if not isinstance(item_description, str) or not isinstance(item_hints, list) or not all(isinstance(hint, str) for hint in item_hints):
+                        raise ValueError(f"each flag description must be text and hints must be a list of strings: {ch_name}")
+                    normalized_flags.append({"flag": item["flag"], "description": item_description, "hints": item_hints})
+                if len({item["flag"] for item in normalized_flags}) != len(normalized_flags):
+                    raise ValueError(f"flags must not contain duplicates: {ch_name}")
+
+                challenge_id = str(uuid.uuid4())[:8]
+                challenge_ids.append(challenge_id)
+                challenge = {
+                    "id": challenge_id,
+                    "name": ch_name,
+                    "display_name": ch_display_name,
+                    "image_tag": f"ctf-{name}",
+                    "description": ch_description,
+                    "flags": normalized_flags,
+                    "build_status": "building",
+                }
+                data["challenges"].append(challenge)
+        else:
+            flags = meta.get("flags")
+            if not isinstance(flags, list) or not flags:
+                raise ValueError("flags must be a non-empty list")
+            normalized_flags = []
+            for item in flags:
+                if not isinstance(item, dict) or not isinstance(item.get("flag"), str) or not item["flag"]:
+                    raise ValueError("each flag must include a non-empty flag property")
+                item_description = item.get("description", "")
+                item_hints = item.get("hints", [])
+                if not isinstance(item_description, str) or not isinstance(item_hints, list) or not all(isinstance(hint, str) for hint in item_hints):
+                    raise ValueError("each flag description must be text and hints must be a list of strings")
+                normalized_flags.append({"flag": item["flag"], "description": item_description, "hints": item_hints})
+            if len({item["flag"] for item in normalized_flags}) != len(normalized_flags):
+                raise ValueError("flags must not contain duplicates")
+
+            image_tag = f"ctf-{name}"
+            challenge_id = str(uuid.uuid4())[:8]
+            challenge_ids = [challenge_id]
+            challenge = {
+                "id": challenge_id,
+                "name": name,
+                "display_name": display_name,
+                "image_tag": image_tag,
+                "description": description,
+                "flags": normalized_flags,
+                "build_status": "building",
+            }
+            data["challenges"].append(challenge)
+
         save_data(data)
         os.makedirs(BUILD_LOGS_STORE, exist_ok=True)
-        with open(build_log_path(challenge_id), "w", encoding="utf-8") as log:
+        log_path = build_log_path(f"ctf-{name}")
+        with open(log_path, "w", encoding="utf-8") as log:
             log.write("Build queued...\n")
-        threading.Thread(target=build_image_thread, args=(name, build_dir, image_tag, challenge_id), daemon=True).start()
-        return redirect(url_for("main.build_log_view", challenge_id=challenge_id))
+        image_tag = f"ctf-{name}"
+        threading.Thread(target=build_image_thread, args=(name, build_dir, image_tag, challenge_ids, class_id), daemon=True).start()
+        if class_id:
+            return redirect(url_for("main.build_log_view", challenge_id=challenge_ids[0], class_id=class_id))
+        return redirect(url_for("main.build_log_view", challenge_id=challenge_ids[0]))
     except Exception as e:
         if 'filepath' in locals() and os.path.exists(filepath):
             os.unlink(filepath)
         if 'build_dir' in locals() and os.path.isdir(build_dir):
             shutil.rmtree(build_dir, ignore_errors=True)
+        class_id_err = request.form.get("class_id", "").strip()
+        if class_id_err:
+            return redirect(url_for("main.admin_class_detail", class_id=class_id_err, error=f"Build failed: {str(e)}"))
         return redirect(url_for("main.admin_challenges", error=f"Build failed: {str(e)}"))
 
 
 @admin_required
 def build_log_view(challenge_id: str):
-    return build_log_page(challenge_id)
+    class_id = request.args.get("class_id")
+    return build_log_page(challenge_id, class_id=class_id)
 
 
 @admin_required
 def build_log_stream(challenge_id: str):
-    log_path = build_log_path(challenge_id)
+    data = load_data()
+    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id), None)
+    if not challenge:
+        return Response("", mimetype="text/event-stream")
+    image_tag = challenge.get("image_tag", challenge_id)
+    log_path = build_log_path(image_tag)
 
     def generate():
         offset = 0
         idle_polls = 0
-        while idle_polls < 3_600:  # One hour keeps an abandoned tab from leaking a worker.
+        while idle_polls < 3_600:
             if os.path.exists(log_path):
                 with open(log_path, "r", encoding="utf-8", errors="replace") as log:
                     log.seek(offset)
@@ -177,8 +218,8 @@ def build_log_stream(challenge_id: str):
                         yield f"data: {json.dumps(line)}\n\n"
                     continue
                 data = load_data()
-                challenge = next((c for c in data["challenges"] if c["id"] == challenge_id), None)
-                if challenge and challenge.get("build_status") in {"success", "failed"}:
+                related = [c for c in data["challenges"] if c.get("image_tag") == image_tag]
+                if any(c.get("build_status") in {"ready", "failed"} for c in related):
                     yield "event: complete\ndata: done\n\n"
                     return
             idle_polls += 1
@@ -197,19 +238,18 @@ def delete_challenge(challenge_id: str):
 
 
 @admin_required
-def admin_codes():
-    data = load_data()
-
-    def get_challenge(cid: str):
-        return next((c for c in data["challenges"] if c["id"] == cid), None)
-
-    return admin_codes_page(data["access_codes"], data["challenges"], get_challenge, flashes=request_flash_messages())
-
-
-@admin_required
 def admin_classes():
     data = load_data()
     return admin_classes_page(data["classes"], data["challenges"], data["users"], flashes=request_flash_messages())
+
+
+@admin_required
+def admin_class_detail(class_id: str):
+    data = load_data()
+    classroom = next((c for c in data["classes"] if c["id"] == class_id), None)
+    if not classroom:
+        return redirect(url_for("main.admin_classes", error="Class not found"))
+    return admin_class_detail_page(classroom, data["challenges"], data["users"], flashes=request_flash_messages())
 
 
 @admin_required
@@ -232,13 +272,13 @@ def assign_challenge_to_class():
     class_id, challenge_id = request.form.get("class_id"), request.form.get("challenge_id")
     data = load_data()
     classroom = next((c for c in data["classes"] if c["id"] == class_id), None)
-    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "success"), None)
+    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "ready"), None)
     if not classroom or not challenge:
         return redirect(url_for("main.admin_classes", error="Choose a valid ready challenge and class"))
     if challenge_id not in classroom["challenge_ids"]:
         classroom["challenge_ids"].append(challenge_id)
         save_data(data)
-    return redirect(url_for("main.admin_classes", success="Challenge assigned"))
+    return redirect(url_for("main.admin_class_detail", class_id=class_id, success="Challenge assigned"))
 
 
 @admin_required
@@ -249,37 +289,6 @@ def delete_class(class_id):
     return redirect(url_for("main.admin_classes", success="Class deleted"))
 
 
-@admin_required
-def generate_code():
-    data = load_data()
-    code_str = f"CTF-{uuid.uuid4().hex[:6].upper()}"
-    data["access_codes"].append({
-        "code": code_str,
-        "challenges": [],
-        "used_by": []
-    })
-    save_data(data)
-    return redirect(url_for("main.admin_codes"))
-
-
-@admin_required
-def add_challenge_to_code():
-    data = load_data()
-    code = request.form["code"]
-    challenge_id = request.form["challenge_id"]
-    for c in data["access_codes"]:
-        if c["code"] == code and challenge_id not in c["challenges"]:
-            c["challenges"].append(challenge_id)
-    save_data(data)
-    return redirect(url_for("main.admin_codes"))
-
-
-@admin_required
-def delete_code(code: str):
-    data = load_data()
-    data["access_codes"] = [c for c in data["access_codes"] if c["code"] != code]
-    save_data(data)
-    return redirect(url_for("main.admin_codes"))
 
 
 @admin_required

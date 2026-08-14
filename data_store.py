@@ -24,8 +24,7 @@ def _init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                used_codes TEXT NOT NULL
+                password_hash TEXT NOT NULL
             )
             """
         )
@@ -35,23 +34,10 @@ def _init_db() -> None:
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 display_name TEXT,
+                description TEXT,
                 image_tag TEXT,
-                internal_port INTEGER,
-                connection_type TEXT,
-                flag_type TEXT,
-                flag TEXT,
                 flags TEXT,
-                hints TEXT,
                 build_status TEXT
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS access_codes (
-                code TEXT PRIMARY KEY,
-                challenges TEXT NOT NULL,
-                used_by TEXT NOT NULL
             )
             """
         )
@@ -77,6 +63,7 @@ def _init_db() -> None:
             """
         )
         _ensure_column(cursor, "challenges", "flags", "TEXT")
+        _ensure_column(cursor, "challenges", "description", "TEXT")
         _ensure_column(cursor, "instances", "submitted_flags", "TEXT")
         cursor.execute(
             """
@@ -145,26 +132,16 @@ def load_data() -> dict:
         cursor = conn.cursor()
         users = [
             {
-                **dict(row),
-                "used_codes": _deserialize(row["used_codes"]),
+                **dict(row)
             }
             for row in cursor.execute("SELECT * FROM users")
         ]
         challenges = [
             {
                 **dict(row),
-                "hints": _deserialize(row["hints"]),
                 "flags": _deserialize(row["flags"]),
             }
             for row in cursor.execute("SELECT * FROM challenges")
-        ]
-        access_codes = [
-            {
-                **dict(row),
-                "challenges": _deserialize(row["challenges"]),
-                "used_by": _deserialize(row["used_by"]),
-            }
-            for row in cursor.execute("SELECT * FROM access_codes")
         ]
         instances = [
             {**dict(row), "submitted_flags": _deserialize(row["submitted_flags"])}
@@ -177,7 +154,6 @@ def load_data() -> dict:
         return {
             "users": users,
             "challenges": challenges,
-            "access_codes": access_codes,
             "instances": instances,
             "classes": classes,
         }
@@ -189,52 +165,36 @@ def save_data(data: dict) -> None:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM users")
         cursor.execute("DELETE FROM challenges")
-        cursor.execute("DELETE FROM access_codes")
         cursor.execute("DELETE FROM instances")
         cursor.execute("DELETE FROM classes")
 
         for user in data.get("users", []):
             cursor.execute(
-                "INSERT OR REPLACE INTO users (id, username, password_hash, used_codes) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO users (id, username, password_hash) VALUES (?, ?, ?)",
                 (
                     user["id"],
                     user["username"],
                     user["password_hash"],
-                    _serialize(user.get("used_codes", [])),
                 ),
             )
 
         for challenge in data.get("challenges", []):
             cursor.execute(
-                "INSERT OR REPLACE INTO challenges (id, name, display_name, image_tag, internal_port, connection_type, flag_type, flag, flags, hints, build_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO challenges (id, name, display_name, description, image_tag, flags, build_status) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     challenge["id"],
                     challenge["name"],
                     challenge.get("display_name"),
+                    challenge.get("description", ""),
                     challenge.get("image_tag"),
-                    challenge.get("internal_port"),
-                    challenge.get("connection_type"),
-                    challenge.get("flag_type"),
-                    challenge.get("flag"),
                     _serialize(challenge.get("flags", [])),
-                    _serialize(challenge.get("hints", [])),
                     challenge.get("build_status"),
-                ),
-            )
-
-        for code in data.get("access_codes", []):
-            cursor.execute(
-                "INSERT OR REPLACE INTO access_codes (code, challenges, used_by) VALUES (?, ?, ?)",
-                (
-                    code["code"],
-                    _serialize(code.get("challenges", [])),
-                    _serialize(code.get("used_by", [])),
                 ),
             )
 
         for instance in data.get("instances", []):
             cursor.execute(
-                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, container_id, container_name, host_port, connection_type, status, created_at, expires_at, dynamic_flag, flag, submitted_flags, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, container_id, container_name, host_port, status, created_at, expires_at, dynamic_flag, flag, submitted_flags, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     instance["id"],
                     instance.get("user_id"),
@@ -242,7 +202,6 @@ def save_data(data: dict) -> None:
                     instance.get("container_id"),
                     instance.get("container_name"),
                     instance.get("host_port"),
-                    instance.get("connection_type"),
                     instance.get("status"),
                     instance.get("created_at"),
                     instance.get("expires_at"),
@@ -286,7 +245,6 @@ def get_user(username: str) -> Optional[dict]:
         if not row:
             return None
         user = dict(row)
-        user["used_codes"] = _deserialize(user["used_codes"])
         return user
 
 
@@ -300,5 +258,4 @@ def get_user_by_id(uid: str, data: Optional[dict] = None) -> Optional[dict]:
         if not row:
             return None
         user = dict(row)
-        user["used_codes"] = _deserialize(user["used_codes"])
         return user

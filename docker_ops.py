@@ -34,13 +34,13 @@ def ensure_network() -> None:
         docker_client.networks.create(DOCKER_NETWORK, driver="bridge")
 
 
-def build_log_path(challenge_id: str) -> str:
-    return os.path.join(BUILD_LOGS_STORE, f"{challenge_id}.log")
+def build_log_path(tag: str) -> str:
+    return os.path.join(BUILD_LOGS_STORE, f"{tag}.log")
 
 
-def build_image_thread(name: str, build_dir: str, tag: str, challenge_id: str) -> None:
+def build_image_thread(name: str, build_dir: str, tag: str, challenge_ids: list, class_id: Optional[str] = None) -> None:
     os.makedirs(BUILD_LOGS_STORE, exist_ok=True)
-    log_path = build_log_path(challenge_id)
+    log_path = build_log_path(tag)
 
     def write_log(log, message: str) -> None:
         log.write(message if message.endswith("\n") else f"{message}\n")
@@ -59,21 +59,34 @@ def build_image_thread(name: str, build_dir: str, tag: str, challenge_id: str) -
                 elif "errorDetail" in chunk:
                     write_log(log, f"ERROR: {chunk['errorDetail'].get('message', chunk['errorDetail'])}")
             write_log(log, "Build completed successfully!")
+        image = docker_client.images.get(tag)
+        exposed = image.attrs.get("Config", {}).get("ExposedPorts") or {}
+        ports = sorted(int(value.split("/", 1)[0]) for value in exposed if value.endswith("/tcp"))
+        if not ports:
+            raise RuntimeError("Challenge image must declare one TCP port with EXPOSE")
+        internal_port = 22 if 22 in ports else ports[0]
+        connection_type = "ssh" if internal_port == 22 else ("web" if internal_port in {80, 3000, 5000, 8000, 8080} else "nc")
         data = load_data()
         for ch in data["challenges"]:
-            if ch["id"] == challenge_id:
-                ch["build_status"] = "success"
+            if ch["id"] in challenge_ids:
+                ch["build_status"] = "ready"
+        if class_id:
+            for classroom in data["classes"]:
+                if classroom["id"] == class_id:
+                    for cid in challenge_ids:
+                        if cid not in classroom["challenge_ids"]:
+                            classroom["challenge_ids"].append(cid)
+                    break
         save_data(data)
     except Exception as e:
         with open(log_path, "a", encoding="utf-8") as log:
             write_log(log, f"Build failed: {e}")
         data = load_data()
         for ch in data["challenges"]:
-            if ch["id"] == challenge_id:
+            if ch["id"] in challenge_ids:
                 ch["build_status"] = "failed"
         save_data(data)
     finally:
-        # The image is now in Docker; retaining untrusted build contexts wastes disk.
         shutil.rmtree(build_dir, ignore_errors=True)
 
 
@@ -108,7 +121,6 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
         return None, "Maximum concurrent instances reached"
 
     image_tag = challenge["image_tag"]
-    internal_port = challenge["internal_port"]
     username, password = _random_credentials()
 
     env = {}
@@ -125,6 +137,14 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
     try:
         ensure_network()
         docker_client = get_docker_client()
+        image = docker_client.images.get(f"{image_tag}:latest")
+        exposed = image.attrs.get("Config", {}).get("ExposedPorts") or {}
+        ports = sorted(int(value.split("/", 1)[0]) for value in exposed if value.endswith("/tcp"))
+        if not ports:
+            return None, "Challenge image must declare one TCP port with EXPOSE"
+        internal_port = 22 if 22 in ports else ports[0]
+        connection_type = "ssh" if internal_port == 22 else ("web" if internal_port in {80, 3000, 5000, 8000, 8080} else "nc")
+
         container = docker_client.containers.run(
             f"{image_tag}:latest",
             detach=True,
@@ -142,7 +162,7 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
             container.stop(timeout=3)
             return None, "Docker did not publish the challenge port"
         port = int(bindings[0]["HostPort"])
-        if challenge["connection_type"] == "ssh":
+        if connection_type == "ssh":
             _provision_ssh_user(container, username, password)
     except Exception as e:
         if container is not None:
@@ -159,7 +179,6 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
         "container_id": container.id,
         "container_name": container_name,
         "host_port": port,
-        "connection_type": challenge["connection_type"],
         "status": "running",
         "created_at": datetime.now().isoformat(),
         "expires_at": (datetime.now() + timedelta(seconds=INSTANCE_TIMEOUT)).isoformat(),
