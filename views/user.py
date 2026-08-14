@@ -29,11 +29,11 @@ def dashboard():
     challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
     solved_count = 0
     for ch in challenges:
-        expected = {f["flag"] for f in flag_specs(ch)}
         for inst in data["instances"]:
             if inst["user_id"] == user["id"] and inst["challenge_id"] == ch["id"]:
+                expected = flag_values(ch, inst.get("dynamic_flag"))
                 submitted = set(inst.get("submitted_flags", []))
-                if expected.issubset(submitted):
+                if set(expected).issubset(submitted):
                     solved_count += 1
                     break
 

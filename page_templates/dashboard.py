@@ -105,7 +105,7 @@ def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
         else:
             badge = '<span class="status-badge status-failed">failed</span>'
             action = f'<a href="/challenges/{challenge["id"]}"><button class="secondary">Open challenge</button></a>'
-        rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div><div class="small-text">{total_points(challenge)} points</div>{badge}</div>{action}</div></li>'''
+        rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div><div class="small-text" style="color:#ffd77a; font-weight:600;">{total_points(challenge)} points</div>{badge}</div>{action}</div></li>'''
     return user_layout(f'''<a href="/classes" class="small-text">{icon("arrow-left")} All classes</a><h1>{escape(classroom['name'])}</h1><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users', toasts=toasts)
 
 
@@ -180,7 +180,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 <div>
                     <strong style="font-size:15px;">Challenge {idx + 1}</strong>
                     <div class="small-text" style="margin-top:4px;">{description}</div>
-                    <div class="small-text" style="margin-top:4px;">{points} points · {remaining}/{spec.get("max_attempts", 3)} attempts remaining</div>
+                    <div class="small-text" style="margin-top:4px;"><span style="color:#ffd77a; font-weight:600;">{points} points</span> · {remaining}/{spec.get("max_attempts", 3)} attempts remaining</div>
                 </div>
                 <span class="badge-external {card['status_class']}">{card['status_text']}</span>
             </div>
@@ -264,6 +264,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                     <h4 style="margin-bottom:8px; font-weight:600;">Hints</h4>
                     {hints_block}
                 </div>
+                <div class="small-text" style="margin-bottom:16px; color:#ffd77a; font-weight:600;">{points} points · {remaining}/{spec.get("max_attempts", 3)} attempts remaining</div>
                 {f'<div style="margin-bottom:16px;"><h4 style="margin-bottom:8px; font-weight:600;">Connection Details</h4>{connection}</div>' if connection else ''}
                 {action_area}
             </div>
@@ -300,7 +301,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         </div>
         <script>
         (function() {{
-            const target = new Date({escape(expires_at)}).getTime();
+            const target = new Date({escape(expires_at)!r}).getTime();
             const el = document.getElementById('lab-countdown');
             function tick() {{
                 const now = new Date().getTime();
