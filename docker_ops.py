@@ -112,7 +112,11 @@ def _provision_ssh_user(container, username: str, password: str) -> None:
         result = container.exec_run(["/bin/sh", "-c", command], user="root")
     except docker.errors.APIError as exc:
         if "already in progress" in str(exc) or "not running" in str(exc):
-            raise RuntimeError("Container stopped before SSH user could be created. Check container logs.") from exc
+            try:
+                logs = container.logs(tail=50).decode("utf-8", errors="replace")
+            except Exception:
+                logs = "unavailable"
+            raise RuntimeError(f"Container stopped before SSH user could be created. Check container logs. Logs: {logs}") from exc
         raise
     if result.exit_code != 0:
         output = result.output.decode("utf-8", errors="replace").strip()
@@ -165,10 +169,14 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
         container.reload()
         if container.status != "running":
             try:
+                logs = container.logs(tail=50).decode("utf-8", errors="replace")
+            except Exception:
+                logs = "unavailable"
+            try:
                 container.remove(force=True)
             except Exception:
                 pass
-            return None, "Container failed to start; check the challenge image and build logs"
+            return None, f"Container failed to start; check the challenge image and build logs. Logs: {logs}"
         bindings = container.attrs["NetworkSettings"]["Ports"].get(f"{internal_port}/tcp")
         if not bindings:
             container.stop(timeout=3)
