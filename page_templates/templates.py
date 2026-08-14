@@ -1,4 +1,5 @@
 from html import escape
+from typing import Optional
 
 from page_templates.layout import admin_layout
 
