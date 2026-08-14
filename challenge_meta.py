@@ -16,5 +16,8 @@ def flag_specs(challenge: dict) -> list[dict]:
 
 
 def flag_values(challenge: dict, dynamic_flag: str | None = None) -> list[str]:
-    return [spec["flag"] for spec in flag_specs(challenge)]
+    flags = [spec["flag"] for spec in flag_specs(challenge)]
+    if dynamic_flag:
+        flags.append(dynamic_flag)
+    return flags
 

@@ -1,6 +1,6 @@
 from html import escape
 
-from page_templates.layout import user_layout
+from page_templates.layout import user_layout, icon
 
 
 def _flashes(flashes):
@@ -78,7 +78,7 @@ def dashboard_page(user, user_classes, active_instances, solved_count, total_cou
         <section class="card">
             <h3>My classes</h3>
             <ul class="list">{class_blocks}</ul>
-            <div style="margin-top: 16px;"><a href="/classes" class="small-text">View all classes →</a></div>
+            <div style="margin-top: 16px;"><a href="/classes" class="small-text">View all classes {icon("arrow-right")}</a></div>
         </section>
     </div>
     ''', active='home')
@@ -112,7 +112,7 @@ def class_detail_page(classroom, challenges, instances, flashes=None) -> str:
             badge = '<span class="status-badge status-failed">failed</span>'
             action = f'<a href="/challenges/{challenge["id"]}"><button class="secondary">Open challenge</button></a>'
         rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div>{badge}</div>{action}</div></li>'''
-    return user_layout(f'''{_flashes(flashes)}<a href="/classes" class="small-text">← All classes</a><h1>{escape(classroom['name'])}</h1><p class="muted">Join code: <code>{escape(classroom['join_code'])}</code></p><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users')
+    return user_layout(f'''{_flashes(flashes)}<a href="/classes" class="small-text">{icon("arrow-left")} All classes</a><h1>{escape(classroom['name'])}</h1><p class="muted">Join code: <code>{escape(classroom['join_code'])}</code></p><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users')
 
 
 def student_challenges_page(challenges, instances, solved_challenge_ids, flashes=None) -> str:
@@ -180,7 +180,7 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         flag_value = escape(spec.get("flag", ""))
 
         cards_html += f'''
-        <li class="flag-card" onclick="openModal({idx})" style="cursor:pointer;">
+        <div class="flag-card" onclick="openModal({idx})" style="cursor:pointer;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
                 <div>
                     <strong style="font-size:15px;">Flag {idx + 1}</strong>
@@ -188,13 +188,13 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
                 </div>
                 <span class="status-badge {card['status_class']}">{card['status_text']}</span>
             </div>
-        </li>
+        </div>
         '''
 
     flags_section = f'''
     <section class="card" style="margin-top:18px;">
         <h3>Flags</h3>
-        <ul class="list" style="margin-top:10px;">{cards_html}</ul>
+        <div class="flag-grid" style="margin-top:10px;">{cards_html}</div>
     </section>
     '''
 
@@ -228,6 +228,7 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
             else:
                 action_area = f'''
                 <form method="post" action="/submit_flag/{inst['id']}" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px;">
+                    <input type="hidden" name="flag_index" value="{idx}">
                     <input name="flag" placeholder="flag{{...}}" required style="flex:1; min-width:240px; margin:0;">
                     <button type="submit">Submit Flag</button>
                 </form>
@@ -300,19 +301,41 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         const el = document.getElementById(elementId);
         if (!el) return;
         let text = el.textContent || el.innerText;
-        navigator.clipboard.writeText(text).then(() => {{
-            const oldText = btn.textContent;
+        const reset = () => {{
+            btn.textContent = oldText;
+            btn.style.background = oldBg;
+            btn.style.color = oldColor;
+        }};
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+            navigator.clipboard.writeText(text).then(() => {{
+                btn.textContent = 'Copied!';
+                btn.style.background = '#0f382a';
+                btn.style.color = '#7bf5c3';
+                setTimeout(reset, 1500);
+            }}).catch(() => {{
+                fallbackCopy(text, btn, reset);
+            }});
+        }} else {{
+            fallbackCopy(text, btn, reset);
+        }}
+    }}
+    function fallbackCopy(text, btn, reset) {{
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {{
+            document.execCommand('copy');
             btn.textContent = 'Copied!';
-            const oldBg = btn.style.background;
-            const oldColor = btn.style.color;
             btn.style.background = '#0f382a';
             btn.style.color = '#7bf5c3';
-            setTimeout(() => {{
-                btn.textContent = oldText;
-                btn.style.background = oldBg;
-                btn.style.color = oldColor;
-            }}, 1500);
-        }});
+            setTimeout(reset, 1500);
+        }} catch (e) {{
+            console.error(e);
+        }}
+        document.body.removeChild(ta);
     }}
     </script>
     ''', active='users')

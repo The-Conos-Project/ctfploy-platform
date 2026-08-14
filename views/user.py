@@ -160,8 +160,7 @@ def view_instance(instance_id):
 
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
     if challenge:
-        # Redirect to the student challenge details page, passing request query parameters
-        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge["id"], **request.args))
+        return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"], **request.args))
     return redirect(url_for("main.dashboard"))
 
 
@@ -211,13 +210,32 @@ def submit_flag(instance_id):
     submitted = request.form["flag"].strip()
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
     expected_flags = flag_values(challenge, instance.get("dynamic_flag"))
-    if submitted not in expected_flags:
-        msg = "Incorrect"
-    elif submitted in instance.get("submitted_flags", []):
-        msg = "Already submitted"
+
+    flag_index = request.form.get("flag_index")
+    if flag_index is not None:
+        try:
+            idx = int(flag_index)
+            if idx < 0 or idx >= len(expected_flags):
+                msg = "Invalid flag"
+            elif submitted != expected_flags[idx]:
+                msg = "Incorrect"
+            elif submitted in instance.get("submitted_flags", []):
+                msg = "Already submitted"
+            else:
+                instance.setdefault("submitted_flags", []).append(submitted)
+                save_data(data)
+                completed = len(set(instance["submitted_flags"]).intersection(expected_flags))
+                msg = f"Accepted! {completed}/{len(expected_flags)} flags found"
+        except ValueError:
+            msg = "Invalid flag index"
     else:
-        instance.setdefault("submitted_flags", []).append(submitted)
-        save_data(data)
-        completed = len(set(instance["submitted_flags"]).intersection(expected_flags))
-        msg = f"Accepted! {completed}/{len(expected_flags)} flags found"
+        if submitted not in expected_flags:
+            msg = "Incorrect"
+        elif submitted in instance.get("submitted_flags", []):
+            msg = "Already submitted"
+        else:
+            instance.setdefault("submitted_flags", []).append(submitted)
+            save_data(data)
+            completed = len(set(instance["submitted_flags"]).intersection(expected_flags))
+            msg = f"Accepted! {completed}/{len(expected_flags)} flags found"
     return redirect(url_for("main.view_instance", instance_id=instance_id, msg=msg))
