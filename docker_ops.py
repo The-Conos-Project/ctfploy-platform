@@ -50,7 +50,7 @@ def build_image_thread(name: str, build_dir: str, tag: str, challenge_ids: list,
         docker_client = get_docker_client()
         with open(log_path, "a", encoding="utf-8") as log:
             write_log(log, "Build started...")
-            _, logs = docker_client.images.build(path=build_dir, tag=tag, rm=True)
+            _, logs = docker_client.images.build(path=build_dir, tag=tag, rm=True, nocache=True, pull=True)
             for chunk in logs:
                 if "stream" in chunk:
                     write_log(log, chunk["stream"])
