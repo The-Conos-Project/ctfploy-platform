@@ -96,6 +96,94 @@ def _random_credentials() -> Tuple[str, str]:
     return username, password
 
 
+def _package_name(image_tag: str) -> str:
+    return image_tag[4:] if image_tag.startswith("ctf-") else image_tag
+
+
+def _instance_environment(challenge: dict, username: str, password: str) -> dict:
+    """Build container env vars.
+
+    setup.sh treats an empty CHALLENGE_NAME as "set up the full lab". The
+    platform used to always pass the package name (e.g. linux-trail), which
+    skipped every station and then crashed on `chmod /opt/challenges`.
+    Only pass CHALLENGE_NAME for a per-station variant whose name differs
+    from the image package.
+    """
+    env = {
+        "SSH_USER": username,
+        "SSH_PASSWORD": password,
+    }
+    challenge_name = str(challenge.get("name") or "").strip()
+    package = _package_name(challenge.get("image_tag") or "")
+    if challenge_name and challenge_name != package:
+        env["CHALLENGE_NAME"] = challenge_name
+    return env
+
+
+def _container_logs(container) -> str:
+    try:
+        return container.logs(tail=80).decode("utf-8", errors="replace")
+    except Exception:
+        return "unavailable"
+
+
+def _cleanup_container(container) -> None:
+    if container is None:
+        return
+    try:
+        container.stop(timeout=3)
+    except Exception:
+        pass
+    try:
+        container.remove(force=True)
+    except Exception:
+        pass
+
+
+def _published_port(container, internal_port: int) -> Optional[int]:
+    ports_map = (container.attrs.get("NetworkSettings") or {}).get("Ports") or {}
+    bindings = ports_map.get(f"{internal_port}/tcp") or []
+    if not bindings:
+        return None
+    host_port = bindings[0].get("HostPort")
+    return int(host_port) if host_port else None
+
+
+def _wait_for_lab(container, connection_type: str, timeout: int = 30) -> Tuple[bool, str]:
+    """Wait until the lab stays up. A first 'running' reading is not enough —
+    linux-trail's entrypoint still runs setup.sh and can exit a second later.
+    """
+    deadline = time.time() + timeout
+    saw_running = False
+    while time.time() < deadline:
+        try:
+            container.reload()
+        except docker.errors.NotFound:
+            return False, "Container was removed while starting"
+        status = container.status
+        if status in {"exited", "dead", "removing"}:
+            return False, f"Container {status} during startup"
+        if status == "running":
+            saw_running = True
+            if connection_type == "ssh":
+                try:
+                    result = container.exec_run(
+                        ["/bin/sh", "-c", "pgrep -x sshd >/dev/null 2>&1 || ss -lnt 2>/dev/null | grep -q ':22'"]
+                    )
+                    if result.exit_code == 0:
+                        return True, ""
+                except docker.errors.APIError as exc:
+                    message = str(exc).lower()
+                    if "not running" in message or "no such container" in message or "404" in message:
+                        return False, "Container stopped during startup"
+            else:
+                return True, ""
+        time.sleep(1)
+    if saw_running:
+        return True, ""
+    return False, "Container failed to become ready in time"
+
+
 def _provision_ssh_user(container, username: str, password: str) -> None:
     """Create the per-instance login account after an SSH image has started.
 
@@ -132,11 +220,7 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
     image_tag = challenge["image_tag"]
     username, password = _random_credentials()
 
-    env = {
-        "CHALLENGE_NAME": challenge.get("name", ""),
-        "SSH_USER": username,
-        "SSH_PASSWORD": password,
-    }
+    env = _instance_environment(challenge, username, password)
     dyn_flag = None
     if challenge.get("flag_type") == "dynamic":
         dyn_flag = f"flag{{{uuid.uuid4()}}}"
@@ -166,59 +250,36 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
             network=DOCKER_NETWORK,
             remove=False,
         )
-        for _ in range(20):
-            time.sleep(1)
+        ready, reason = _wait_for_lab(container, connection_type)
+        if not ready:
+            logs = _container_logs(container)
+            _cleanup_container(container)
+            return None, f"{reason}. Logs: {logs}"
+
+        port = None
+        for _ in range(10):
             try:
                 container.reload()
             except docker.errors.NotFound:
+                return None, f"Container disappeared before a port was published. Logs: {_container_logs(container)}"
+            port = _published_port(container, internal_port)
+            if port:
                 break
-            if container.status == "running":
-                break
-        else:
-            logs = ""
-            try:
-                logs = container.logs(tail=80).decode("utf-8", errors="replace")
-            except Exception:
-                logs = "unavailable"
-            try:
-                container.remove(force=True)
-            except Exception:
-                pass
-            return None, f"Container failed to start; check the challenge image and build logs. Logs: {logs}"
-
-        try:
-            container.reload()
-        except docker.errors.NotFound:
-            try:
-                logs = container.logs(tail=80).decode("utf-8", errors="replace")
-            except Exception:
-                logs = "unavailable"
-            try:
-                container.remove(force=True)
-            except Exception:
-                pass
-            return None, f"Container disappeared before SSH user could be created. Logs: {logs}"
-
-        bindings = container.attrs["NetworkSettings"]["Ports"].get(f"{internal_port}/tcp")
-        if not bindings:
-            try:
-                container.stop(timeout=3)
-            except Exception:
-                pass
-            try:
-                container.remove(force=True)
-            except Exception:
-                pass
-            return None, "Docker did not publish the challenge port"
-        port = int(bindings[0]["HostPort"])
-        # SSH user is created at container startup via setup.sh using env vars
+            time.sleep(0.5)
+        if not port:
+            logs = _container_logs(container)
+            _cleanup_container(container)
+            return None, f"Docker did not publish the challenge port. Logs: {logs}"
+    except docker.errors.ImageNotFound:
+        return None, f"Challenge image {image_tag}:latest was not found. Rebuild the challenge."
+    except docker.errors.NotFound as e:
+        logs = _container_logs(container)
+        _cleanup_container(container)
+        return None, f"Lab container vanished during start. Logs: {logs or e}"
     except Exception as e:
-        if container is not None:
-            try:
-                container.stop(timeout=3)
-            except Exception:
-                pass
-        return None, f"Docker error: {e}"
+        logs = _container_logs(container)
+        _cleanup_container(container)
+        return None, f"Docker error: {e}. Logs: {logs}"
 
     instance = {
         "id": str(uuid.uuid4())[:8],
