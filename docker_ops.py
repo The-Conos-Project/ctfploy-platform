@@ -108,7 +108,12 @@ def _provision_ssh_user(container, username: str, password: str) -> None:
         f"id {username} >/dev/null 2>&1 || useradd -m -s /bin/bash {username}; "
         f"printf '%s:%s\\n' '{username}' '{password}' | chpasswd"
     )
-    result = container.exec_run(["/bin/sh", "-c", command], user="root")
+    try:
+        result = container.exec_run(["/bin/sh", "-c", command], user="root")
+    except docker.errors.APIError as exc:
+        if "already in progress" in str(exc) or "not running" in str(exc):
+            raise RuntimeError("Container stopped before SSH user could be created. Check container logs.") from exc
+        raise
     if result.exit_code != 0:
         output = result.output.decode("utf-8", errors="replace").strip()
         raise RuntimeError(output or "could not create the generated SSH user")
@@ -159,7 +164,10 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
         )
         container.reload()
         if container.status != "running":
-            container.remove(force=True)
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
             return None, "Container failed to start; check the challenge image and build logs"
         bindings = container.attrs["NetworkSettings"]["Ports"].get(f"{internal_port}/tcp")
         if not bindings:
@@ -167,7 +175,14 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
             return None, "Docker did not publish the challenge port"
         port = int(bindings[0]["HostPort"])
         if connection_type == "ssh":
-            _provision_ssh_user(container, username, password)
+            try:
+                _provision_ssh_user(container, username, password)
+            except Exception as exc:
+                try:
+                    container.stop(timeout=3)
+                except Exception:
+                    pass
+                return None, str(exc)
     except Exception as e:
         if container is not None:
             try:
@@ -202,17 +217,27 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
 def terminate_instance(instance_id: str) -> bool:
     data = load_data()
     inst = next((i for i in data["instances"] if i["id"] == instance_id), None)
-    if inst and inst["status"] == "running":
-        try:
-            container = get_docker_client().containers.get(inst["container_id"])
-            container.stop(timeout=3)
-        except Exception:
-            pass
+    if not inst or inst["status"] != "running":
+        return False
+    try:
+        container = get_docker_client().containers.get(inst["container_id"])
+        container.stop(timeout=3)
+    except docker.errors.NotFound:
         inst["status"] = "terminated"
         inst["terminated_at"] = datetime.now().isoformat()
         save_data(data)
         return True
-    return False
+    except docker.errors.APIError as exc:
+        if "already in progress" in str(exc) or "not running" in str(exc) or "removal" in str(exc):
+            inst["status"] = "terminated"
+            inst["terminated_at"] = datetime.now().isoformat()
+            save_data(data)
+            return True
+        return False
+    inst["status"] = "terminated"
+    inst["terminated_at"] = datetime.now().isoformat()
+    save_data(data)
+    return True
 
 
 def auto_terminate(instance_id: str, delay: int) -> None:
