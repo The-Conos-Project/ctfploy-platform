@@ -57,7 +57,7 @@ def admin_dashboard():
 @admin_required
 def admin_challenges():
     data = load_data()
-    return admin_challenges_page(data["challenges"])
+    return admin_challenges_page(data["challenges"], flashes=request_flash_messages())
 
 
 @admin_required

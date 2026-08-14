@@ -8,13 +8,13 @@ def _flashes(flashes):
     return ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in (flashes or []))
 
 
-def admin_challenges_page(challenges):
+def admin_challenges_page(challenges, flashes=None):
     rows = ''
     for ch in challenges:
         status = ch.get('build_status', 'failed')
         label = {'ready': 'ready', 'building': 'building', 'failed': 'failed'}.get(status, 'failed')
         rows += f'''<li><div class="row"><div><strong>{escape(ch['display_name'])}</strong><div class="small-text">{escape(ch.get('description', ''))}</div><span class="status-badge status-{status}">{label}</span></div><div><a href="/admin/build_log/{ch['id']}" class="small-text">Build logs</a> · <a href="/admin/delete_challenge/{ch['id']}" class="small-text">Delete</a></div></div></li>'''
-    return admin_layout(f'''<h1>Challenges</h1><section class="card"><h3>Import from URL</h3><form action="/admin/import-url" method="post"><input name="url" placeholder="https://example.com/challenge.tar.gz" required><button>Fetch & build</button></form><p class="small-text">A package needs a Dockerfile and ctfploy.json. Docker connection details are detected from EXPOSE.</p></section><section class="card"><h2>All challenges</h2><ul class="list">{rows or '<li>No challenges imported yet.</li>'}</ul></section>''', active='boxes')
+    return admin_layout(f'''{_flashes(flashes)}<h1>Challenges</h1><section class="card"><h3>Import from URL</h3><form action="/admin/import-url" method="post"><input name="url" placeholder="https://example.com/challenge.tar.gz" required><button>Fetch & build</button></form><p class="small-text">A package needs a Dockerfile and ctfploy.json. Docker connection details are detected from EXPOSE.</p></section><section class="card"><h2>All challenges</h2><ul class="list">{rows or '<li>No challenges imported yet.</li>'}</ul></section>''', active='boxes')
 
 
 def admin_dashboard_page(challenges, instances, flashes=None):
