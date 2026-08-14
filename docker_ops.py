@@ -166,8 +166,12 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
             network=DOCKER_NETWORK,
             remove=True
         )
-        container.reload()
-        if container.status != "running":
+        for _ in range(10):
+            time.sleep(1)
+            container.reload()
+            if container.status == "running":
+                break
+        else:
             try:
                 logs = container.logs(tail=50).decode("utf-8", errors="replace")
             except Exception:
