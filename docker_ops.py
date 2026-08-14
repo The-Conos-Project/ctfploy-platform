@@ -158,6 +158,9 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
             remove=True
         )
         container.reload()
+        if container.status != "running":
+            container.remove(force=True)
+            return None, "Container failed to start; check the challenge image and build logs"
         bindings = container.attrs["NetworkSettings"]["Ports"].get(f"{internal_port}/tcp")
         if not bindings:
             container.stop(timeout=3)
