@@ -211,23 +211,7 @@ def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Opt
                 pass
             return None, "Docker did not publish the challenge port"
         port = int(bindings[0]["HostPort"])
-        if connection_type == "ssh":
-            try:
-                _provision_ssh_user(container, username, password)
-            except Exception as exc:
-                try:
-                    container.stop(timeout=3)
-                except Exception:
-                    pass
-                try:
-                    container.remove(force=True)
-                except Exception:
-                    pass
-                return None, str(exc)
-        try:
-            container.remove(force=True)
-        except Exception:
-            pass
+        # SSH user is created at container startup via setup.sh using env vars
     except Exception as e:
         if container is not None:
             try:
@@ -279,6 +263,10 @@ def terminate_instance(instance_id: str) -> bool:
             save_data(data)
             return True
         return False
+    try:
+        container.remove(force=True)
+    except Exception:
+        pass
     inst["status"] = "terminated"
     inst["terminated_at"] = datetime.now().isoformat()
     save_data(data)
