@@ -108,19 +108,15 @@ def student_challenge_detail(challenge_id: str):
     if not challenge:
         return redirect(url_for("main.dashboard", error="Challenge not found"))
 
-    flags = challenge.get("flags", [])
-    flag_instances = []
-    for idx, flag_spec in enumerate(flags):
-        inst = next(
-            (i for i in data["instances"] if i["challenge_id"] == challenge_id and i["user_id"] == user["id"] and i.get("flag_index", 0) == idx and i["status"] == "running"),
-            None
-        )
-        flag_instances.append({"flag_spec": flag_spec, "instance": inst, "index": idx})
+    instance = next(
+        (i for i in data["instances"] if i["challenge_id"] == challenge_id and i["user_id"] == user["id"] and i["status"] == "running"),
+        None
+    )
 
     msg = request.args.get("msg") or request.args.get("success") or request.args.get("error")
     host = request.host.split(":")[0]
 
-    return student_challenge_detail_page(challenge, flag_instances, host, msg)
+    return student_challenge_detail_page(challenge, instance, host, msg)
 
 
 @login_required
@@ -148,29 +144,7 @@ def start_challenge(challenge_id):
     if not allowed:
         return redirect(url_for("main.dashboard", error="Access denied"))
 
-    instance, err = create_container(challenge, user["id"], flag_index=0)
-    if err:
-        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error=err))
-    return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id))
-
-
-@login_required
-def start_flag(challenge_id: str, flag_index: int):
-    data = load_data()
-    user = get_user_by_id(session["user_id"])
-    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "ready"), None)
-    if not challenge:
-        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error="Challenge not found or not ready"))
-
-    allowed = any(challenge_id in classroom.get("challenge_ids", []) and user["id"] in classroom.get("member_ids", []) for classroom in data["classes"])
-    if not allowed:
-        return redirect(url_for("main.dashboard", error="Access denied"))
-
-    flags = challenge.get("flags", [])
-    if flag_index < 0 or flag_index >= len(flags):
-        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error="Invalid flag index"))
-
-    instance, err = create_container(challenge, user["id"], flag_index=flag_index)
+    instance, err = create_container(challenge, user["id"])
     if err:
         return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error=err))
     return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id))
@@ -198,6 +172,32 @@ def terminate(instance_id):
         terminate_instance(instance_id)
         return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"], success="Lab terminated"))
     return redirect(url_for("main.dashboard"))
+
+
+@login_required
+def leaderboard():
+    data = load_data()
+    user = get_user_by_id(session["user_id"])
+    user_classes = [c for c in data["classes"] if user["id"] in c.get("member_ids", [])]
+    assigned_challenge_ids = set()
+    for c in user_classes:
+        assigned_challenge_ids.update(c.get("challenge_ids", []))
+    challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
+
+    rows = ''
+    for ch in challenges:
+        expected_flags = {f["flag"] for f in ch.get("flags", [])}
+        solvers = []
+        for inst in data["instances"]:
+            if inst["challenge_id"] == ch["id"] and inst["status"] == "running":
+                submitted = set(inst.get("submitted_flags", []))
+                if expected_flags.issubset(submitted):
+                    solver = get_user_by_id(inst["user_id"])
+                    if solver:
+                        solvers.append(solver["username"])
+        solvers_html = ", ".join(escape(s) for s in solvers) if solvers else '<span class="small-text">No solvers yet</span>'
+        rows += f'''<li><div class="row"><div><strong>{escape(ch['display_name'])}</strong><div class="small-text">{escape(ch.get('description', ''))}</div></div><div style="text-align:right;">{solvers_html}</div></div></li>'''
+    return leaderboard_page(challenges, rows or '<li>No challenges assigned yet.</li>')
 
 
 @login_required

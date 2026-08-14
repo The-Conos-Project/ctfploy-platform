@@ -4,7 +4,7 @@ from page_templates.layout import user_layout
 
 
 def _flashes(flashes):
-    return ''.join(f'<div class="flash {category}">{escape(message)}</div>' for category, message in (flashes or []))
+    return ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in (flashes or []))
 
 
 def dashboard_page(user, user_classes, active_instances, solved_count, total_count, flashes=None) -> str:
@@ -145,128 +145,137 @@ def student_challenges_page(challenges, instances, solved_challenge_ids, flashes
     ''', active='users')
 
 
-def student_challenge_detail_page(challenge, flag_instances, host, msg) -> str:
+def student_challenge_detail_page(challenge, inst, host, msg) -> str:
     def format_hint(hint: str) -> str:
         stripped = hint.strip()
         command_prefixes = ('$', 'ssh ', 'curl ', 'nc ', 'cat ', 'ls ', 'find ', 'grep ', 'tar ', 'sudo ', 'chmod ', 'ps ', 'netstat ', 'ss ', 'echo ', 'export ', 'python', 'pip', 'nano ', 'vim ', 'vi ', 'touch ', 'mkdir ', 'cd ', 'pwd', 'whoami', 'id', 'file ', 'head ', 'tail ', 'less ', 'more ', 'wc ', 'sort ', 'uniq ', 'awk ', 'sed ', 'cut ', 'tr ', 'xargs ', 'jq ')
         if any(stripped.startswith(p) for p in command_prefixes):
             cmd = stripped.lstrip('$ ').strip()
             return f'<div class="terminal-snippet"><span class="terminal-prompt">$</span><span class="terminal-cmd">{escape(cmd)}</span></div>'
-        parts = hint.split('`')
-        result = []
-        for i, part in enumerate(parts):
-            if i % 2 == 1:
-                result.append(f'<code class="inline-code">{escape(part)}</code>')
-            else:
-                result.append(escape(part))
-        return '<br>'.join(result)
+        return escape(hint)
 
-    def connection_html_for(inst):
-        if not inst:
-            return ''
-        return f'''
-        <p class="small-text" style="margin-bottom: 8px;">Connect to your lab environment via SSH:</p>
-        <div class="terminal-snippet">
-            <span class="terminal-prompt">$</span>
-            <span class="terminal-cmd" id="ssh-cmd">ssh {escape(inst["username"])}@{escape(host)} -p {inst["host_port"]}</span>
-            <button class="copy-btn" onclick="copyText('ssh-cmd', this)">Copy</button>
-        </div>
-        <p style="margin-top: 8px;">Password: <code class="inline-code" id="ssh-passwd" style="user-select: all;">{escape(inst["password"])}</code> <button class="copy-btn" style="padding: 2px 6px; font-size: 10px; margin-left: 6px;" onclick="copyText('ssh-passwd', this)">Copy</button></p>
+    flags = challenge.get("flags", [])
+    flag_cards = []
+    for idx, spec in enumerate(flags):
+        flag_name = spec.get("flag", "")
+        submitted = flag_name in inst.get("submitted_flags", []) if inst else False
+        status_class = "status-success" if submitted else "status-ready"
+        status_text = "solved" if submitted else "ready"
+        flag_cards.append({
+            "index": idx,
+            "spec": spec,
+            "submitted": submitted,
+            "status_class": status_class,
+            "status_text": status_text,
+        })
+
+    cards_html = ""
+    for card in flag_cards:
+        idx = card["index"]
+        spec = card["spec"]
+        description = escape(spec.get("description", ""))
+        hints = spec.get("hints", [])
+        hints_list = "".join(f"<li style='margin-top:6px;'>{format_hint(h)}</li>" for h in hints)
+        hints_block = f"<ul style='margin-left:18px; font-size:13px; color:#8da2ce; list-style:square;'>{hints_list}</ul>" if hints_list else ""
+        flag_value = escape(spec.get("flag", ""))
+
+        cards_html += f'''
+        <li class="flag-card" onclick="openModal({idx})" style="cursor:pointer;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div>
+                    <strong style="font-size:15px;">Flag {idx + 1}</strong>
+                    <div class="small-text" style="margin-top:4px;">{description}</div>
+                </div>
+                <span class="status-badge {card['status_class']}">{card['status_text']}</span>
+            </div>
+        </li>
         '''
 
-    flags_html = ''
-    for item in flag_instances:
-        idx = item['index']
-        spec = item['flag_spec']
-        inst = item['instance']
-        hints_html = ''.join(f'<li style="margin-top: 8px;">{format_hint(hint)}</li>' for hint in spec.get('hints', []))
-        description_text = f'<p style="margin: 8px 0 4px; color: #aebddd;">{escape(spec.get("description", ""))}</p>' if spec.get('description') else ''
-        hint_list_html = f'<ul style="margin-left: 18px; font-size: 13px; color: #8da2ce; list-style: square;">{hints_html}</ul>' if hints_html else ''
+    flags_section = f'''
+    <section class="card" style="margin-top:18px;">
+        <h3>Flags</h3>
+        <ul class="list" style="margin-top:10px;">{cards_html}</ul>
+    </section>
+    '''
 
-        status_badge = ''
-        action_area = ''
+    modals_html = ""
+    for card in flag_cards:
+        idx = card["index"]
+        spec = card["spec"]
+        description = escape(spec.get("description", ""))
+        hints = spec.get("hints", [])
+        hints_list = "".join(f"<li style='margin-top:6px;'>{format_hint(h)}</li>" for h in hints)
+        hints_block = f"<ul style='margin-left:18px; font-size:13px; color:#8da2ce; list-style:square;'>{hints_list}</ul>" if hints_list else ""
+        flag_value = escape(spec.get("flag", ""))
+        submitted = card["submitted"]
+
         if inst:
-            status_badge = '<span class="status-badge status-building">running</span>'
-            submitted = inst.get('submitted_flags', [])
-            submitted_flag = spec.get('flag', '') in submitted
-            if submitted_flag:
+            connection = f'''
+            <p class="small-text" style="margin-bottom:8px;">Connect to your lab environment via SSH:</p>
+            <div class="terminal-snippet">
+                <span class="terminal-prompt">$</span>
+                <span class="terminal-cmd" id="modal-ssh-cmd-{idx}">ssh {escape(inst["username"])}@{escape(host)} -p {inst["host_port"]}</span>
+                <button class="copy-btn" onclick="copyText('modal-ssh-cmd-{idx}', this)">Copy</button>
+            </div>
+            <p style="margin-top:8px;">Password: <code class="inline-code" id="modal-ssh-passwd-{idx}" style="user-select:all;">{escape(inst["password"])}</code> <button class="copy-btn" style="padding:2px 6px; font-size:10px; margin-left:6px;" onclick="copyText('modal-ssh-passwd-{idx}', this)">Copy</button></p>
+            '''
+            if submitted:
                 action_area = f'''
-                <div class="card" style="border: 1px solid #164e3c; background: #0e3025;">
-                    <h4 style="margin:0; color:#8efcd4;">✓ Flag submitted</h4>
-                    <p class="small-text" style="margin-top:6px; color:#8efcd4;">You already submitted this flag.</p>
+                <div class="card" style="border:1px solid #164e3c; background:#0e3025; margin-top:16px;">
+                    <h4 style="margin:0; color:#8efcd4;">Flag submitted</h4>
                 </div>
                 '''
             else:
                 action_area = f'''
-                <form method="post" action="/submit_flag/{inst['id']}" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:12px;">
+                <form method="post" action="/submit_flag/{inst['id']}" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px;">
                     <input name="flag" placeholder="flag{{...}}" required style="flex:1; min-width:240px; margin:0;">
                     <button type="submit">Submit Flag</button>
                 </form>
                 '''
-            conn = connection_html_for(inst)
-            if conn:
-                action_area = f'''
-                <div style="margin-top:16px; border-top: 1px solid #1f2d47; padding-top: 16px;">
-                    <h4 style="margin-bottom: 8px; font-weight: 600;">Connection Details</h4>
-                    {conn}
-                </div>
-                ''' + action_area
         else:
-            status_badge = '<span class="status-badge status-ready">ready</span>'
+            connection = ""
             action_area = f'''
-            <a href="/start_flag/{challenge['id']}/{idx}"><button style="margin-top:12px;">Start Container</button></a>
+            <a href="/start/{challenge['id']}"><button style="margin-top:16px;">Start Container</button></a>
             '''
 
-        flags_html += f'''
-        <li style="padding: 20px 0; border-bottom: 1px solid #1f2d47;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
-                <div>
-                    <strong style="font-size: 16px;">Flag {idx + 1}</strong>
-                    {status_badge}
+        modals_html += f'''
+        <div id="modal-{idx}" class="modal" onclick="if(event.target===this)closeModal({idx})">
+            <div class="modal-content" style="width:90%; max-width:640px; max-height:90vh; overflow-y:auto;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                    <div>
+                        <strong style="font-size:18px;">Flag {idx + 1}</strong>
+                        <span class="status-badge {card['status_class']}" style="margin-left:8px;">{card['status_text']}</span>
+                    </div>
+                    <button class="secondary" onclick="closeModal({idx})" style="background:transparent; border:1px solid #283452; color:#aebddd;">Close</button>
                 </div>
-                {action_area if not inst else '<a href="/terminate/' + inst['id'] + '"><button class="secondary" style="background:#3d131f; color:#ffa3b8; border:1px solid #5e2230;">Stop</button></a>'}
+                <p style="color:#aebddd; margin-bottom:12px;">{description}</p>
+                <div style="margin-bottom:16px;">
+                    <h4 style="margin-bottom:8px; font-weight:600;">Hints</h4>
+                    {hints_block}
+                </div>
+                {f'<div style="margin-bottom:16px;"><h4 style="margin-bottom:8px; font-weight:600;">Connection Details</h4>{connection}</div>' if connection else ''}
+                {action_area}
             </div>
-            {description_text}
-            {hint_list_html}
-        </li>
-        '''
-
-    objectives_html = ''
-    if flags_html:
-        objectives_html = f'''
-        <section class="card" style="margin-top: 18px;">
-            <h3>Flags</h3>
-            <ul class="list" style="margin-top: 10px;">{flags_html}</ul>
-        </section>
+        </div>
         '''
 
     flash_html = ''
     if msg:
-        color = '#0e3025' if msg.startswith('Accepted!') or msg == 'Correct!' else '#3d1620'
-        text_color = '#8efcd4' if msg.startswith('Accepted!') or msg == 'Correct!' else '#ffb3c1'
-        border_color = '#164e3c' if msg.startswith('Accepted!') or msg == 'Correct!' else '#5e2230'
+        color = '#0e3025' if msg.startswith('Accepted!') else '#3d1620'
+        text_color = '#8efcd4' if msg.startswith('Accepted!') else '#ffb3c1'
+        border_color = '#164e3c' if msg.startswith('Accepted!') else '#5e2230'
         flash_html = f'<div class="flash" style="background:{color}; color:{text_color}; border: 1px solid {border_color}; font-weight: 600;">{escape(msg)}</div>'
 
     status = challenge.get('build_status', 'failed')
     action_card_html = ''
     if status != 'ready':
         if status == 'building':
-            action_card_html = f'''
-            <div class="card" style="text-align: center; padding: 32px 24px;">
-                <span class="status-badge status-building" style="margin-bottom: 12px;">Building Challenge</span>
-                <p class="muted small-text">The instructor recently uploaded this challenge and it is currently compiling. Please wait...</p>
-            </div>
-            '''
+            action_card_html = '<div class="card" style="text-align: center; padding: 32px 24px;"><span class="status-badge status-building" style="margin-bottom: 12px;">Building Challenge</span><p class="muted small-text">The instructor recently uploaded this challenge and it is currently compiling. Please wait...</p></div>'
         else:
-            action_card_html = f'''
-            <div class="card" style="text-align: center; padding: 32px 24px; border: 1px solid #3d131f;">
-                <span class="status-badge status-failed" style="margin-bottom: 12px;">Build Failed</span>
-                <p class="muted small-text">This challenge could not build correctly. Please contact your administrator.</p>
-            </div>
-            '''
+            action_card_html = '<div class="card" style="text-align: center; padding: 32px 24px; border: 1px solid #3d131f;"><span class="status-badge status-failed" style="margin-bottom: 12px;">Build Failed</span><p class="muted small-text">This challenge could not build correctly. Please contact your administrator.</p></div>'
 
     return user_layout(f'''
-    <a href="/classes" class="small-text">← Back to My Classes</a>
+    <a href="/classes" class="small-text">&larr; Back to My Classes</a>
     <div style="margin-top: 12px; margin-bottom: 24px;">
         <h1>{escape(challenge['display_name'])}</h1>
         <p class="muted" style="margin-top: 6px; font-size: 16px;">{escape(challenge.get('description', ''))}</p>
@@ -274,9 +283,19 @@ def student_challenge_detail_page(challenge, flag_instances, host, msg) -> str:
 
     {flash_html}
     {action_card_html}
-    {objectives_html}
+    {flags_section}
+
+    {modals_html}
 
     <script>
+    function openModal(idx) {{
+        const modal = document.getElementById('modal-' + idx);
+        if (modal) modal.style.display = 'flex';
+    }}
+    function closeModal(idx) {{
+        const modal = document.getElementById('modal-' + idx);
+        if (modal) modal.style.display = 'none';
+    }}
     function copyText(elementId, btn) {{
         const el = document.getElementById(elementId);
         if (!el) return;
@@ -299,3 +318,11 @@ def student_challenge_detail_page(challenge, flag_instances, host, msg) -> str:
     ''', active='users')
 
 
+def leaderboard_page(challenges, rows) -> str:
+    return user_layout(f'''
+    <h1>Leaderboard</h1>
+    <p class="muted">See who has solved each challenge.</p>
+    <section class="card">
+        <ul class="list">{rows}</ul>
+    </section>
+    ''', active='leaderboard')

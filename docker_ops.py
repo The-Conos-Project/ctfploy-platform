@@ -114,7 +114,7 @@ def _provision_ssh_user(container, username: str, password: str) -> None:
         raise RuntimeError(output or "could not create the generated SSH user")
 
 
-def create_container(challenge: dict, user_id: str, flag_index: int = 0) -> Tuple[Optional[dict], Optional[str]]:
+def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Optional[str]]:
     data = load_data()
     user_instances = [i for i in data["instances"] if i["user_id"] == user_id and i["status"] == "running"]
     if len(user_instances) >= MAX_CONCURRENT_PER_USER:
@@ -123,23 +123,17 @@ def create_container(challenge: dict, user_id: str, flag_index: int = 0) -> Tupl
     image_tag = challenge["image_tag"]
     username, password = _random_credentials()
 
-    flags = challenge.get("flags", [])
-    flag_spec = flags[flag_index] if flag_index < len(flags) else {}
-    dyn_flag = None
-    if challenge.get("flag_type") == "dynamic":
-        dyn_flag = f"flag{{{uuid.uuid4()}}}"
-    else:
-        dyn_flag = flag_spec.get("flag", "")
-
     env = {
         "CHALLENGE_NAME": challenge.get("name", ""),
         "SSH_USER": username,
         "SSH_PASSWORD": password,
     }
-    if dyn_flag:
+    dyn_flag = None
+    if challenge.get("flag_type") == "dynamic":
+        dyn_flag = f"flag{{{uuid.uuid4()}}}"
         env["FLAG"] = dyn_flag
 
-    container_name = f"ctf_{challenge['id']}_{flag_index}_{int(time.time())}"
+    container_name = f"ctf_{challenge['id']}_{int(time.time())}"
     container = None
     try:
         ensure_network()
@@ -183,7 +177,6 @@ def create_container(challenge: dict, user_id: str, flag_index: int = 0) -> Tupl
         "id": str(uuid.uuid4())[:8],
         "user_id": user_id,
         "challenge_id": challenge["id"],
-        "flag_index": flag_index,
         "container_id": container.id,
         "container_name": container_name,
         "host_port": port,
@@ -192,7 +185,7 @@ def create_container(challenge: dict, user_id: str, flag_index: int = 0) -> Tupl
         "created_at": datetime.now().isoformat(),
         "expires_at": (datetime.now() + timedelta(seconds=INSTANCE_TIMEOUT)).isoformat(),
         "dynamic_flag": dyn_flag,
-        "flag": dyn_flag,
+        "flag": challenge.get("flag", ""),
         "submitted_flags": [],
         "username": username,
         "password": password,

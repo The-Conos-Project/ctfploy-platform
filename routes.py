@@ -9,12 +9,12 @@ from views.user import (
     class_detail,
     join_class,
     start_challenge,
-    start_flag,
     view_instance,
     terminate,
     submit_flag,
     student_challenges,
     student_challenge_detail,
+    leaderboard,
 )
 from views.admin import (
     admin_dashboard,
@@ -43,9 +43,9 @@ bp.add_url_rule("/classes", "classes", classes)
 bp.add_url_rule("/classes/<class_id>", "class_detail", class_detail)
 bp.add_url_rule("/challenges", "student_challenges", student_challenges)
 bp.add_url_rule("/challenges/<challenge_id>", "student_challenge_detail", student_challenge_detail)
+bp.add_url_rule("/leaderboard", "leaderboard", leaderboard)
 bp.add_url_rule("/user/join-class", "join_class", join_class, methods=["POST"])
 bp.add_url_rule("/start/<challenge_id>", "start_challenge", start_challenge)
-bp.add_url_rule("/start_flag/<challenge_id>/<int:flag_index>", "start_flag", start_flag)
 bp.add_url_rule("/instance/<instance_id>", "view_instance", view_instance)
 bp.add_url_rule("/terminate/<instance_id>", "terminate", terminate)
 bp.add_url_rule("/submit_flag/<instance_id>", "submit_flag", submit_flag, methods=["POST"])
