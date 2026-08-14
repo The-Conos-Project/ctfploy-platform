@@ -28,7 +28,7 @@ def layout(content: str, title="CTFploy", sidebar=None) -> str:
         nav = f'<aside class="sidebar" id="sidebar"><div class="sidebar-header"><div class="brand">CTFploy<small>{escape(subtitle)}</small></div><button class="collapse-toggle" type="button" aria-label="Toggle sidebar" onclick="toggleSidebar()">☰</button></div><nav class="nav">' + ''.join(f'<a class="{"active" if key == active else ""}" href="{href}">{icon(key)}<span>{label}</span></a>' for key, href, label in links) + f'</nav><div class="logout"><a class="logout-link" href="{("/admin/logout" if subtitle == "Administrator" else "/logout")}">{icon("log-out")}<span>Logout</span></a></div></aside>'
     body = f'<div class="shell">{nav}<main class="main">{content}</main></div>' if sidebar else content
     script = "<script>function toggleSidebar(){const s=document.getElementById('sidebar');s.classList.toggle('collapsed');localStorage.setItem('ctfploy-sidebar',s.classList.contains('collapsed')?'1':'0')}if(localStorage.getItem('ctfploy-sidebar')==='1')document.getElementById('sidebar')?.classList.add('collapsed')</script>" if sidebar else ''
-    return f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(title)}</title><style>{STYLE}</style></head><body>{body}{script}</body></html>'
+    return f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"><title>{escape(title)}</title><style>{STYLE}</style></head><body>{body}{script}</body></html>'
 
 
 def centered_layout(content: str, title="CTFploy") -> str:
@@ -41,4 +41,3 @@ def admin_layout(content, active="home"):
 
 def user_layout(content, active="home"):
     return layout(content, "CTFploy", ([('home','/dashboard','Dashboard'),('users','/classes','My classes'),('terminal','/leaderboard','Leaderboard')], active, 'Student workspace'))
-
