@@ -47,6 +47,7 @@ def _init_db() -> None:
                 id TEXT PRIMARY KEY,
                 user_id TEXT,
                 challenge_id TEXT,
+                flag_index INTEGER DEFAULT 0,
                 container_id TEXT,
                 container_name TEXT,
                 host_port INTEGER,
@@ -65,6 +66,7 @@ def _init_db() -> None:
         _ensure_column(cursor, "challenges", "flags", "TEXT")
         _ensure_column(cursor, "challenges", "description", "TEXT")
         _ensure_column(cursor, "instances", "submitted_flags", "TEXT")
+        _ensure_column(cursor, "instances", "flag_index", "INTEGER DEFAULT 0")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -194,14 +196,16 @@ def save_data(data: dict) -> None:
 
         for instance in data.get("instances", []):
             cursor.execute(
-                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, container_id, container_name, host_port, status, created_at, expires_at, dynamic_flag, flag, submitted_flags, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO instances (id, user_id, challenge_id, flag_index, container_id, container_name, host_port, connection_type, status, created_at, expires_at, dynamic_flag, flag, submitted_flags, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     instance["id"],
                     instance.get("user_id"),
                     instance.get("challenge_id"),
+                    instance.get("flag_index", 0),
                     instance.get("container_id"),
                     instance.get("container_name"),
                     instance.get("host_port"),
+                    instance.get("connection_type"),
                     instance.get("status"),
                     instance.get("created_at"),
                     instance.get("expires_at"),

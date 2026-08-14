@@ -97,7 +97,6 @@ def student_challenge_detail(challenge_id: str):
     data = load_data()
     user = get_user_by_id(session["user_id"])
 
-    # Verify student is in at least one class that has this challenge assigned
     allowed = any(
         challenge_id in c.get("challenge_ids", []) and user["id"] in c.get("member_ids", [])
         for c in data["classes"]
@@ -109,18 +108,19 @@ def student_challenge_detail(challenge_id: str):
     if not challenge:
         return redirect(url_for("main.dashboard", error="Challenge not found"))
 
-    instance = next(
-        (i for i in data["instances"] if i["challenge_id"] == challenge_id and i["user_id"] == user["id"] and i["status"] == "running"),
-        None
-    )
+    flags = challenge.get("flags", [])
+    flag_instances = []
+    for idx, flag_spec in enumerate(flags):
+        inst = next(
+            (i for i in data["instances"] if i["challenge_id"] == challenge_id and i["user_id"] == user["id"] and i.get("flag_index", 0) == idx and i["status"] == "running"),
+            None
+        )
+        flag_instances.append({"flag_spec": flag_spec, "instance": inst, "index": idx})
 
     msg = request.args.get("msg") or request.args.get("success") or request.args.get("error")
-    expected_flags = flag_values(challenge, instance.get("dynamic_flag") if instance else None)
-    submitted_flags = set(instance.get("submitted_flags", []) if instance else [])
-    progress = (len(submitted_flags.intersection(expected_flags)), len(expected_flags))
     host = request.host.split(":")[0]
 
-    return student_challenge_detail_page(challenge, instance, host, msg, flag_specs(challenge), progress)
+    return student_challenge_detail_page(challenge, flag_instances, host, msg)
 
 
 @login_required
@@ -148,7 +148,29 @@ def start_challenge(challenge_id):
     if not allowed:
         return redirect(url_for("main.dashboard", error="Access denied"))
 
-    instance, err = create_container(challenge, user["id"])
+    instance, err = create_container(challenge, user["id"], flag_index=0)
+    if err:
+        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error=err))
+    return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id))
+
+
+@login_required
+def start_flag(challenge_id: str, flag_index: int):
+    data = load_data()
+    user = get_user_by_id(session["user_id"])
+    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "ready"), None)
+    if not challenge:
+        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error="Challenge not found or not ready"))
+
+    allowed = any(challenge_id in classroom.get("challenge_ids", []) and user["id"] in classroom.get("member_ids", []) for classroom in data["classes"])
+    if not allowed:
+        return redirect(url_for("main.dashboard", error="Access denied"))
+
+    flags = challenge.get("flags", [])
+    if flag_index < 0 or flag_index >= len(flags):
+        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error="Invalid flag index"))
+
+    instance, err = create_container(challenge, user["id"], flag_index=flag_index)
     if err:
         return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error=err))
     return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id))
