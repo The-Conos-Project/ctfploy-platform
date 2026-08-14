@@ -117,7 +117,7 @@ def student_challenge_detail(challenge_id: str):
     msg = request.args.get("msg") or request.args.get("success") or request.args.get("error")
     host = request.host.split(":")[0]
 
-    return student_challenge_detail_page(challenge, instance, host, msg)
+    return student_challenge_detail_page(challenge, instance, host, msg, expires_at=instance.get("expires_at") if instance else None)
 
 
 @login_required

@@ -7,14 +7,12 @@ def sign_in_page(error: bool = False) -> str:
     toasts = []
     if error:
         toasts.append(("error", "Invalid credentials"))
-    toast_html = ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in toasts)
     return centered_layout(f"""
     <div class="centered-page">
         <div class="centered-container">
             <div class="card">
                 <h2>CTFploy Sign In</h2>
                 <p>Access your training labs securely.</p>
-                {toast_html}
                 <form method="post">
                     <label>Username</label>
                     <input name="username" placeholder="Username" required autofocus>
@@ -26,21 +24,19 @@ def sign_in_page(error: bool = False) -> str:
             </div>
         </div>
     </div>
-    """, title="Sign In - CTFploy")
+    """, title="Sign In - CTFploy", toasts=toasts)
 
 
 def admin_sign_in_page(error: bool = False) -> str:
     toasts = []
     if error:
         toasts.append(("error", "Invalid admin credentials"))
-    toast_html = ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in toasts)
     return centered_layout(f"""
     <div class="centered-page">
         <div class="centered-container">
             <div class="card">
                 <h2>CTFploy Admin Sign In</h2>
                 <p>Admin username is fixed to <strong>root</strong>.</p>
-                {toast_html}
                 <form method="post">
                     <label>Username</label>
                     <input name="username" value="root" readonly>
@@ -51,21 +47,19 @@ def admin_sign_in_page(error: bool = False) -> str:
             </div>
         </div>
     </div>
-    """, title="Admin Sign In - CTFploy")
+    """, title="Admin Sign In - CTFploy", toasts=toasts)
 
 
 def register_page(error: bool = False) -> str:
     toasts = []
     if error:
         toasts.append(("error", "Username already exists"))
-    toast_html = ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in toasts)
     return centered_layout(f"""
     <div class="centered-page">
         <div class="centered-container">
             <div class="card">
                 <h2>Create a new account</h2>
                 <p>Register and start solving challenges.</p>
-                {toast_html}
                 <form method="post">
                     <label>Username</label>
                     <input name="username" placeholder="Username" required autofocus>
@@ -77,5 +71,4 @@ def register_page(error: bool = False) -> str:
             </div>
         </div>
     </div>
-    """, title="Register - CTFploy")
-
+    """, title="Register - CTFploy", toasts=toasts)

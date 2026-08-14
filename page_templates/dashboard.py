@@ -3,13 +3,7 @@ from html import escape
 from page_templates.layout import user_layout, icon
 
 
-def _toasts(toasts):
-    return ''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in (toasts or []))
-
-
 def dashboard_page(user, user_classes, active_instances, solved_count, total_count, toasts=None) -> str:
-    flash_html = _toasts(toasts)
-
     active_labs_html = ''
     if active_instances:
         labs_list = ''
@@ -35,7 +29,7 @@ def dashboard_page(user, user_classes, active_instances, solved_count, total_cou
         '''
 
     class_blocks = ''.join(
-        f'''<li><div class="row"><div><strong>{escape(c["name"])}</strong><div class="small-text">{len(c["challenge_ids"])} challenge(s) · Join code: <code>{escape(c["join_code"])}</code></div></div><a href="/classes/{c["id"]}"><button class="secondary">Open class</button></a></div></li>'''
+        f'''<li><div class="row"><div><strong>{escape(c["name"])}</strong><div class="small-text">{len(c['challenge_ids'])} challenge(s) · Join code: <code>{escape(c['join_code'])}</code></div></div><a href="/classes/{c["id"]}"><button class="secondary">Open class</button></a></div></li>'''
         for c in user_classes
     ) or '<li>You have not joined a class yet.</li>'
 
@@ -63,7 +57,6 @@ def dashboard_page(user, user_classes, active_instances, solved_count, total_cou
     return user_layout(f'''
     <h1>Welcome back, {escape(user['username'])}</h1>
     <p class="muted" style="margin-bottom: 24px;">Track your training labs, classrooms, and solver progress.</p>
-    {flash_html}
     {stats_html}
     {active_labs_html}
     <div class="grid">
@@ -81,7 +74,7 @@ def dashboard_page(user, user_classes, active_instances, solved_count, total_cou
             <div style="margin-top: 16px;"><a href="/classes" class="small-text">View all classes {icon("arrow-right")}</a></div>
         </section>
     </div>
-    ''', active='home')
+    ''', active='home', toasts=toasts)
 
 
 def classes_page(classes, toasts=None) -> str:
@@ -89,7 +82,7 @@ def classes_page(classes, toasts=None) -> str:
         f'''<li><div class="row"><div><strong>{escape(classroom['name'])}</strong><div class="small-text">{len(classroom['challenge_ids'])} assigned challenge(s)</div></div><a href="/classes/{classroom['id']}"><button>Open class</button></a></div></li>'''
         for classroom in classes
     ) or '<li>No classes joined yet.</li>'
-    return user_layout(f'''{_toasts(toasts)}<h1>My classes</h1><p class="muted">Open a class to view only its assigned challenges.</p><section class="card"><ul class="list">{items}</ul></section>''', active='users')
+    return user_layout(f'''<h1>My classes</h1><p class="muted">Open a class to view only its assigned challenges.</p><section class="card"><ul class="list">{items}</ul></section>''', active='users', toasts=toasts)
 
 
 def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
@@ -112,12 +105,10 @@ def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
             badge = '<span class="status-badge status-failed">failed</span>'
             action = f'<a href="/challenges/{challenge["id"]}"><button class="secondary">Open challenge</button></a>'
         rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div>{badge}</div>{action}</div></li>'''
-    return user_layout(f'''{_toasts(toasts)}<a href="/classes" class="small-text">{icon("arrow-left")} All classes</a><h1>{escape(classroom['name'])}</h1><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users')
+    return user_layout(f'''<a href="/classes" class="small-text">{icon("arrow-left")} All classes</a><h1>{escape(classroom['name'])}</h1><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users', toasts=toasts)
 
 
 def student_challenges_page(challenges, instances, solved_challenge_ids, toasts=None) -> str:
-    flash_html = _toasts(toasts)
-
     rows = ''
     instance_by_challenge = {instance['challenge_id']: instance for instance in instances}
     for challenge in challenges:
@@ -136,16 +127,15 @@ def student_challenges_page(challenges, instances, solved_challenge_ids, toasts=
         rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div>{badge_html}</div>{action}</div></li>'''
 
     return user_layout(f'''
-    {flash_html}
     <h1>All Assigned Challenges</h1>
     <p class="muted">Access and solve challenges assigned to you across all joined classes.</p>
     <section class="card">
         <ul class="list">{rows or '<li>No challenges have been assigned yet. Join a classroom first!</li>'}</ul>
     </section>
-    ''', active='users')
+    ''', active='users', toasts=toasts)
 
 
-def student_challenge_detail_page(challenge, inst, host, msg) -> str:
+def student_challenge_detail_page(challenge, inst, host, msg, expires_at=None) -> str:
     def format_hint(hint: str) -> str:
         stripped = hint.strip()
         command_prefixes = ('$', 'ssh ', 'curl ', 'nc ', 'cat ', 'ls ', 'find ', 'grep ', 'tar ', 'sudo ', 'chmod ', 'ps ', 'netstat ', 'ss ', 'echo ', 'export ', 'python', 'pip', 'nano ', 'vim ', 'vi ', 'touch ', 'mkdir ', 'cd ', 'pwd', 'whoami', 'id', 'file ', 'head ', 'tail ', 'less ', 'more ', 'wc ', 'sort ', 'uniq ', 'awk ', 'sed ', 'cut ', 'tr ', 'xargs ', 'jq ')
@@ -233,17 +223,17 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
                 action_area = f'''
                 <form method="post" action="/submit_flag/{inst['id']}" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px;">
                     <input type="hidden" name="flag_index" value="{idx}">
-                    <input name="flag" placeholder="flag{{...}}" required style="flex:1; min-width:240px; margin:0;">
-                    <button type="submit">Submit Flag</button>
+                    <input name="flag" placeholder="flag{{...}}" required style="flex:1; min-width:240px; margin:0; font-family:inherit;">
+                    <button type="submit" style="font-family:inherit;">Submit Flag</button>
                 </form>
                 <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('Terminate this lab?')" style="margin-top:10px;">
-                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-size:12px; padding:6px 12px;">Terminate Lab</button>
+                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-size:12px; padding:6px 12px; font-family:inherit;">Terminate Lab</button>
                 </form>
                 '''
         else:
             connection = ""
             action_area = f'''
-            <a href="/start/{challenge['id']}"><button style="margin-top:16px;">Start Container</button></a>
+            <a href="/start/{challenge['id']}"><button style="margin-top:16px; font-family:inherit;">Start Container</button></a>
             '''
 
         modals_html += f'''
@@ -267,11 +257,6 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         </div>
         '''
 
-    toast_html = ''
-    if msg:
-        kind = 'success' if msg.startswith('Accepted!') else 'error'
-        toast_html = f'<div class="flash {kind}" style="background:{("#0e3025" if kind == "success" else "#3d1620")}; color:{("#8efcd4" if kind == "success" else "#ffb3c1")}; border: 1px solid {("#164e3c" if kind == "success" else "#5e2230")}; font-weight: 600;">{escape(msg)}</div>'
-
     status = challenge.get('build_status', 'failed')
     action_card_html = ''
     if status != 'ready':
@@ -280,15 +265,55 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         else:
             action_card_html = '<div class="card" style="text-align: center; padding: 32px 24px; border: 1px solid #3d131f;"><span class="status-badge status-failed" style="margin-bottom: 12px;">Build Failed</span><p class="muted small-text">This challenge could not build correctly. Please contact your administrator.</p></div>'
 
+    toasts_list = []
+    if msg:
+        toasts_list.append(("success" if msg.startswith("Accepted!") else "error", msg))
+
+    toasts_list = []
+    if msg:
+        toasts_list.append(("success" if msg.startswith("Accepted!") else "error", msg))
+
+    countdown_html = ""
+    if expires_at:
+        countdown_html = f'''
+        <div class="card" style="margin-bottom:18px; border:1px solid #203154; background:#11192e;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div>
+                    <strong style="font-size:14px;">Lab Timer</strong>
+                    <div class="small-text" style="margin-top:4px;">Auto-terminates when timer reaches zero</div>
+                </div>
+                <span id="lab-countdown" style="font-size:20px; font-weight:800; color:#ffd77a; font-variant-numeric:tabular-nums;">--:--</span>
+            </div>
+        </div>
+        <script>
+        (function() {{
+            const target = new Date({escape(expires_at)}).getTime();
+            const el = document.getElementById('lab-countdown');
+            function tick() {{
+                const now = new Date().getTime();
+                let diff = Math.max(0, Math.floor((target - now) / 1000));
+                const m = String(Math.floor(diff / 60)).padStart(2, '0');
+                const s = String(diff % 60).padStart(2, '0');
+                if (el) el.textContent = m + ':' + s;
+                if (diff <= 0 && el) {{
+                    el.textContent = '00:00';
+                    el.style.color = '#ffb3c1';
+                }}
+            }}
+            tick();
+            setInterval(tick, 1000);
+        }})();
+        </script>
+        '''
+
     return user_layout(f'''
-    {_toasts([("success" if msg and msg.startswith("Accepted!") else "error", msg)]) if msg else ''}
     <a href="/classes" class="small-text">{icon("arrow-left")} Back to My Classes</a>
     <div style="margin-top: 12px; margin-bottom: 24px;">
         <h1>{escape(challenge['display_name'])}</h1>
         <p class="muted" style="margin-top: 6px; font-size: 16px;">{escape(challenge.get('description', ''))}</p>
     </div>
 
-    {toast_html}
+    {countdown_html}
     {action_card_html}
     {flags_section}
 
@@ -344,7 +369,7 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
         document.body.removeChild(ta);
     }}
     </script>
-    ''', active='users')
+    ''', active='users', toasts=toasts_list)
 
 
 def leaderboard_page(challenges, rows) -> str:
