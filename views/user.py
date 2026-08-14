@@ -2,6 +2,7 @@ from html import escape
 from flask import redirect, request, session, url_for
 from data_store import get_user_by_id, load_data, save_data
 from docker_ops import create_container, terminate_instance
+from domain_ops import public_ip
 from challenge_meta import flag_specs, flag_values, total_points
 from page_templates.dashboard import (
     dashboard_page,
@@ -116,7 +117,7 @@ def student_challenge_detail(challenge_id: str):
     )
 
     msg = request.args.get("msg") or request.args.get("success") or request.args.get("error")
-    host = request.host.split(":")[0]
+    host = public_ip()
 
     attempts_remaining = {}
     for index, spec in enumerate(flag_specs(challenge)):
