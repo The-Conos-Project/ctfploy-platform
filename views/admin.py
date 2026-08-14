@@ -24,6 +24,30 @@ from page_templates.templates import (
 from views.utils import admin_required, request_flash_messages
 
 
+def _normalize_flag(item):
+    if isinstance(item, str) and item.strip():
+        return {"flag": item.strip(), "description": "", "hints": []}
+    if isinstance(item, dict):
+        flag = str(item.get("flag", "")).strip()
+        if not flag:
+            raise ValueError("each flag must include a non-empty flag property")
+        description = str(item.get("description", ""))
+        hints = item.get("hints", [])
+        if not isinstance(hints, list) or not all(isinstance(hint, str) for hint in hints):
+            raise ValueError("each flag hints must be a list of strings")
+        return {"flag": flag, "description": description, "hints": hints}
+    raise ValueError("each flag must be a string or an object with a flag property")
+
+
+def _normalize_flags(raw):
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("flags must be a non-empty list")
+    normalized = [_normalize_flag(item) for item in raw]
+    if len({item["flag"] for item in normalized}) != len(normalized):
+        raise ValueError("flags must not contain duplicates")
+    return normalized
+
+
 @admin_required
 def admin_dashboard():
     data = load_data()
@@ -111,19 +135,7 @@ def import_url():
                 if not isinstance(ch_description, str):
                     raise ValueError("each challenge description must be a string")
                 ch_flags = ch_meta.get("flags")
-                if not isinstance(ch_flags, list) or not ch_flags:
-                    raise ValueError(f"each challenge must have a non-empty flags list: {ch_name}")
-                normalized_flags = []
-                for item in ch_flags:
-                    if not isinstance(item, dict) or not isinstance(item.get("flag"), str) or not item["flag"]:
-                        raise ValueError(f"each flag must include a non-empty flag property: {ch_name}")
-                    item_description = item.get("description", "")
-                    item_hints = item.get("hints", [])
-                    if not isinstance(item_description, str) or not isinstance(item_hints, list) or not all(isinstance(hint, str) for hint in item_hints):
-                        raise ValueError(f"each flag description must be text and hints must be a list of strings: {ch_name}")
-                    normalized_flags.append({"flag": item["flag"], "description": item_description, "hints": item_hints})
-                if len({item["flag"] for item in normalized_flags}) != len(normalized_flags):
-                    raise ValueError(f"flags must not contain duplicates: {ch_name}")
+                normalized_flags = _normalize_flags(ch_flags)
 
                 challenge_id = str(uuid.uuid4())[:8]
                 challenge_ids.append(challenge_id)
@@ -139,19 +151,7 @@ def import_url():
                 data["challenges"].append(challenge)
         else:
             flags = meta.get("flags")
-            if not isinstance(flags, list) or not flags:
-                raise ValueError("flags must be a non-empty list")
-            normalized_flags = []
-            for item in flags:
-                if not isinstance(item, dict) or not isinstance(item.get("flag"), str) or not item["flag"]:
-                    raise ValueError("each flag must include a non-empty flag property")
-                item_description = item.get("description", "")
-                item_hints = item.get("hints", [])
-                if not isinstance(item_description, str) or not isinstance(item_hints, list) or not all(isinstance(hint, str) for hint in item_hints):
-                    raise ValueError("each flag description must be text and hints must be a list of strings")
-                normalized_flags.append({"flag": item["flag"], "description": item_description, "hints": item_hints})
-            if len({item["flag"] for item in normalized_flags}) != len(normalized_flags):
-                raise ValueError("flags must not contain duplicates")
+            normalized_flags = _normalize_flags(flags)
 
             image_tag = f"ctf-{name}"
             challenge_id = str(uuid.uuid4())[:8]
