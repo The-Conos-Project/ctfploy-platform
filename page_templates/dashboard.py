@@ -225,6 +225,9 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
                 <div class="card" style="border:1px solid #164e3c; background:#0e3025; margin-top:16px;">
                     <h4 style="margin:0; color:#8efcd4;">Challenge completed</h4>
                 </div>
+                <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('Terminate this lab?')" style="margin-top:12px;">
+                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230;">Terminate Lab</button>
+                </form>
                 '''
             else:
                 action_area = f'''
@@ -232,6 +235,9 @@ def student_challenge_detail_page(challenge, inst, host, msg) -> str:
                     <input type="hidden" name="flag_index" value="{idx}">
                     <input name="flag" placeholder="flag{{...}}" required style="flex:1; min-width:240px; margin:0;">
                     <button type="submit">Submit Flag</button>
+                </form>
+                <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('Terminate this lab?')" style="margin-top:10px;">
+                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-size:12px; padding:6px 12px;">Terminate Lab</button>
                 </form>
                 '''
         else:
