@@ -127,13 +127,22 @@ def student_challenge_detail(challenge_id: str):
             if item.get("user_id") == user["id"] and item.get("challenge_id") == challenge_id
         )
         attempts_remaining[index] = max(0, spec["max_attempts"] - used)
+
+    expires_at = None
+    if instance and instance.get("expires_at"):
+        try:
+            from datetime import datetime
+            expires_at = int(datetime.fromisoformat(instance["expires_at"]).timestamp() * 1000)
+        except (ValueError, TypeError):
+            pass
+
     return student_challenge_detail_page(
         challenge,
         instance,
         host,
         msg,
         attempts_remaining=attempts_remaining,
-        expires_at=instance.get("expires_at") if instance else None,
+        expires_at=expires_at,
     )
 
 

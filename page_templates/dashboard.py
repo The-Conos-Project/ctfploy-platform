@@ -80,10 +80,10 @@ def dashboard_page(user, user_classes, active_instances, solved_count, total_cou
 
 def classes_page(classes, toasts=None) -> str:
     items = ''.join(
-        f'''<li><div class="row"><div><strong>{escape(classroom['name'])}</strong><div class="small-text">{len(classroom['challenge_ids'])} assigned challenge(s)</div></div><a href="/classes/{classroom['id']}"><button>Open class</button></a></div></li>'''
+        f'''<div style="width:50%; padding:0 6px 12px 0; box-sizing:border-box;"><div class="card" style="margin-bottom:0; height:100%;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;"><div><strong>{escape(classroom['name'])}</strong><div class="small-text">{len(classroom['challenge_ids'])} assigned challenge(s)</div></div><a href="/classes/{classroom['id']}"><button class="secondary">Open class</button></a></div></div></div>'''
         for classroom in classes
-    ) or '<li>No classes joined yet.</li>'
-    return user_layout(f'''<h1>My classes</h1><p class="muted">Open a class to view only its assigned challenges.</p><section class="card"><ul class="list">{items}</ul></section>''', active='users', toasts=toasts)
+    ) or '<div style="width:100%;">No classes joined yet.</div>'
+    return user_layout(f'''<h1>My classes</h1><p class="muted">Open a class to view only its assigned challenges.</p><section class="card" style="padding:12px;"><div style="display:flex; flex-wrap:wrap; margin:0 -6px;">{items}</div></section>''', active='users', toasts=toasts)
 
 
 def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
@@ -125,7 +125,7 @@ def student_challenges_page(challenges, instances, solved_challenge_ids, toasts=
             badge_html = f'<span class="status-badge status-{status}">{status}</span>'
 
         action = f'<a href="/challenges/{challenge["id"]}"><button class="secondary">Open challenge</button></a>'
-        rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div><div class="small-text">{total_points(challenge)} points</div>{badge_html}</div>{action}</div></li>'''
+        rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div><div class="small-text" style="color:#ffd77a; font-weight:600;">{total_points(challenge)} points</div>{badge_html}</div>{action}</div></li>'''
 
     return user_layout(f'''
     <h1>All Assigned Challenges</h1>
@@ -180,7 +180,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 <div>
                     <strong style="font-size:15px;">Challenge {idx + 1}</strong>
                     <div class="small-text" style="margin-top:4px;">{description}</div>
-                    <div class="small-text" style="margin-top:4px;"><span style="color:#ffd77a; font-weight:600;">{points} points</span> · {remaining}/{spec.get("max_attempts", 3)} attempts remaining</div>
+                    <div class="small-text" style="margin-top:4px;"><span style="color:#ffd77a; font-weight:600;">{points} points</span></div>
                 </div>
                 <span class="badge-external {card['status_class']}">{card['status_text']}</span>
             </div>
@@ -301,10 +301,10 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         </div>
         <script>
         (function() {{
-            const target = new Date({escape(expires_at)!r}).getTime();
+            const target = {expires_at};
             const el = document.getElementById('lab-countdown');
             function tick() {{
-                const now = new Date().getTime();
+                const now = Date.now();
                 let diff = Math.max(0, Math.floor((target - now) / 1000));
                 const m = String(Math.floor(diff / 60)).padStart(2, '0');
                 const s = String(diff % 60).padStart(2, '0');
