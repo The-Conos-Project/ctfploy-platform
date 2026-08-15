@@ -213,15 +213,6 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         submitted = card["submitted"]
 
         if inst:
-            is_expired = False
-            if inst.get("expires_at"):
-                try:
-                    from datetime import datetime
-                    expires = datetime.fromisoformat(inst["expires_at"])
-                    is_expired = datetime.now() >= expires
-                except Exception:
-                    pass
-            expired_warning = '<div class="card" style="border:1px solid #5e2230; background:#3d131f; margin-top:16px;"><h4 style="margin:0; color:#ffb3c1;">Lab expired. Extend or start a new instance.</h4></div>' if is_expired else ''
             connection = f'''
             <button class="secondary" onclick="toggleModalDetails({idx}, this)" style="margin-top:16px; font-family:inherit; width:auto; display:inline-flex; align-items:center; gap:6px;">Show connection details</button>
             <div id="modal-details-{idx}" style="display:none; margin-top:12px;">
@@ -240,7 +231,6 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
             '''
             if submitted:
                 action_area = f'''
-                {expired_warning}
                 <div class="card" style="border:1px solid #164e3c; background:#0e3025; margin-top:16px;">
                     <h4 style="margin:0; color:#8efcd4;">Challenge completed</h4>
                 </div>
@@ -250,7 +240,6 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 '''
             elif remaining > 0:
                 action_area = f'''
-                {expired_warning}
                 <form method="post" action="/submit_flag/{inst['id']}" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px;">
                     <input type="hidden" name="flag_index" value="{idx}">
                     <input name="flag" placeholder="CN{{...}}" required style="flex:1; min-width:240px; margin:0; font-family:inherit;">
@@ -261,10 +250,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 </form>
                 '''
             else:
-                action_area = f'''
-                {expired_warning}
-                <div class="card" style="border:1px solid #5e2230; background:#3d131f; margin-top:16px;"><h4 style="margin:0; color:#ffb3c1;">No attempts remaining</h4></div>
-                '''
+                action_area = '<div class="card" style="border:1px solid #5e2230; background:#3d131f; margin-top:16px;"><h4 style="margin:0; color:#ffb3c1;">No attempts remaining</h4></div>'
         else:
             connection = ""
             action_area = f'''

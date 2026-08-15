@@ -17,6 +17,15 @@ from page_templates.auth import change_password_page, reset_password_request_pag
 from views.utils import login_required, request_toast_messages
 
 
+def _is_expired(inst: dict) -> bool:
+    if not inst.get("expires_at"):
+        return False
+    try:
+        return datetime.now() >= datetime.fromisoformat(inst["expires_at"])
+    except (ValueError, TypeError):
+        return False
+
+
 @login_required
 def dashboard():
     data = load_data()
@@ -96,7 +105,7 @@ def student_challenge_detail(challenge_id: str):
         return redirect(url_for("main.dashboard", error="Challenge not found"))
 
     instance = next(
-        (i for i in data["instances"] if i["challenge_id"] == challenge_id and i["user_id"] == user["id"] and i["status"] == "running"),
+        (i for i in data["instances"] if i["challenge_id"] == challenge_id and i["user_id"] == user["id"] and i["status"] == "running" and not _is_expired(i)),
         None
     )
 

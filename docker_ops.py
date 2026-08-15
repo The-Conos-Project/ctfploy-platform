@@ -356,15 +356,18 @@ def extend_instance(instance_id: str, extra_seconds: int = 3600) -> bool:
 def cleanup_expired_instances() -> None:
     data = load_data()
     now = datetime.now()
-    changed = False
+    original_count = len(data["instances"])
+    surviving = []
     for inst in data["instances"]:
         if inst.get("status") == "running" and inst.get("expires_at"):
             try:
                 expires = datetime.fromisoformat(inst["expires_at"])
                 if now >= expires:
                     terminate_instance(inst["id"])
-                    changed = True
+                    continue
             except Exception:
                 pass
-    if changed:
+        surviving.append(inst)
+    if len(surviving) != original_count:
+        data["instances"] = surviving
         save_data(data)
