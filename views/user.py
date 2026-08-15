@@ -1,4 +1,5 @@
 from html import escape
+from datetime import datetime
 from flask import redirect, request, session, url_for
 from data_store import get_user_by_id, load_data, save_data, hash_password, verify_password
 from docker_ops import create_container, terminate_instance
@@ -184,6 +185,17 @@ def terminate(instance_id):
 
 
 @login_required
+def extend_lab(instance_id):
+    data = load_data()
+    instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
+    if instance and instance.get("status") == "running":
+        from docker_ops import extend_instance
+        if extend_instance(instance_id):
+            return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"], success="Lab extended by 1 hour"))
+    return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"] if instance else "", error="Could not extend lab"))
+
+
+@login_required
 def submit_flag(instance_id):
     data = load_data()
     instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
@@ -289,8 +301,16 @@ def api_labs():
     data = load_data()
     user = get_user_by_id(session["user_id"])
     labs = []
+    now = datetime.now()
     for inst in data["instances"]:
         if inst.get("user_id") == user["id"] and inst.get("status") == "running":
+            if inst.get("expires_at"):
+                try:
+                    expires = datetime.fromisoformat(inst["expires_at"])
+                    if now >= expires:
+                        continue
+                except (ValueError, TypeError):
+                    pass
             ch = next((c for c in data["challenges"] if c["id"] == inst.get("challenge_id")), None)
             labs.append({
                 "instance_id": inst["id"],

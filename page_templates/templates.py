@@ -52,7 +52,7 @@ def admin_domain_page(domain, public_ip, toasts=None):
 
 def admin_settings_page(domain, public_ip, toasts=None):
     domain = escape(domain or "")
-    return admin_layout(f'''<h1>Settings</h1><p class="muted">Manage platform domain and updates.</p><section class="card"><h2>Custom domain</h2><p class="muted">Use your domain for the platform and SSH commands (with each lab's displayed port).</p><form method="post" action="/admin/domain"><label>Domain</label><input name="domain" placeholder="ctf.example.com" value="{domain}" required style="font-family:inherit;"><button style="font-family:inherit;">Save domain and prepare DNS validation</button></form></section><section class="card" style="margin-top:18px;"><h3>DNS record to create</h3><p class="small-text">At your DNS provider, create this record, wait for propagation, then issue the certificate below.</p><div class="command">Type: A\nHost/Name: {domain or 'ctf'}\nValue: {escape(public_ip)}\nTTL: Auto</div></section><section class="card" style="margin-top:18px;"><h3>Issue Let's Encrypt certificate</h3><form method="post" action="/admin/domain/certificate"><input type="hidden" name="domain" value="{domain}"><label>Certificate email</label><input name="email" type="email" required style="font-family:inherit;"><button style="font-family:inherit;">Verify DNS and enable HTTPS</button></form></section><section class="card" style="margin-top:18px;"><h2>Update platform</h2><p>Pull the latest image and restart the platform container.</p><form method="post"><button style="font-family:inherit;">Update now</button></form></section>''', active='settings', toasts=toasts)
+    return admin_layout(f'''<h1>Settings</h1><p class="muted">Manage platform domain and updates.</p><section class="card"><h2>Custom domain</h2><p class="muted">Use your domain for the platform and SSH commands (with each lab's displayed port).</p><form method="post" action="/admin/domain"><label>Domain</label><input name="domain" placeholder="ctf.example.com" value="{domain}" required style="font-family:inherit;"><button style="font-family:inherit;">Save domain and prepare DNS validation</button></form></section><section class="card" style="margin-top:18px;"><h3>DNS record to create</h3><p class="small-text">At your DNS provider, create this record, wait for propagation, then issue the certificate below.</p><div class="command">Type: A\nHost/Name: {domain or 'ctf'}\nValue: {escape(public_ip)}\nTTL: Auto</div></section><section class="card" style="margin-top:18px;"><h3>Issue Let's Encrypt certificate</h3><form method="post" action="/admin/domain/certificate"><input type="hidden" name="domain" value="{domain}"><label>Certificate email</label><input name="email" type="email" required style="font-family:inherit;"><button style="font-family:inherit;">Verify DNS and enable HTTPS</button></form></section><section class="card" style="margin-top:18px; border:2px dashed #203154; background:#0b101e;"><h2>Update platform</h2><p>Pull the latest image and restart the platform container.</p><form method="post"><button style="font-family:inherit;">Update now</button></form></section>''', active='settings', toasts=toasts)
 
 
 def admin_users_page(users, toasts=None):
@@ -66,3 +66,46 @@ def build_log_page(challenge_id: str, class_id: Optional[str] = None):
     back_url = f"/admin/classes/{class_id}" if class_id else "/admin/challenges"
     back_label = "Back to Class" if class_id else "Back to Challenges"
     return admin_layout(f'''<section class="card"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;"><div style="display:flex; align-items:center; gap:8px;"><a href="{back_url}" style="display:inline-flex; align-items:center; color:#8da2ce; text-decoration:none;">{icon("arrow-left")}</a><h2 style="margin:0;">Build log</h2></div></div><div id="log" class="log-window"></div></section><script>const source=new EventSource('/admin/build_log_stream/{challenge_id}');const output=document.getElementById('log');source.onmessage=e=>{{output.textContent+=JSON.parse(e.data)+'\\n';output.scrollTop=output.scrollHeight}};source.addEventListener('complete',()=>source.close());source.onerror=()=>source.close();</script>''', active='boxes')
+
+
+def admin_leaderboard_page(grouped_entries, toasts=None) -> str:
+    sections = ''
+    for class_id, entries in grouped_entries.items():
+        class_name = escape(entries[0]['class_name']) if entries else escape(class_id)
+        rows = ''.join(
+            f'''<li><div class="row"><strong>#{index} {escape(entry["username"])}</strong><div style="text-align:right;"><strong style="color:#ffd77a;">{entry["points"]} points</strong><div class="small-text">{entry["solved"]} challenge(s) solved</div></div></div></li>'''
+            for index, entry in enumerate(entries, start=1)
+        ) or '<li>No scores yet.</li>'
+        sections += f'''
+        <section class="card" style="margin-bottom:18px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                <h3 style="margin:0;">{class_name}</h3>
+                <button class="copy-class" onclick="copyText(this, '/leaderboard?class_id={class_id}')">Copy link {icon("copy")}</button>
+            </div>
+            <ul class="list">{rows}</ul>
+        </section>
+        '''
+
+    if not sections:
+        sections = '<section class="card"><p class="muted">No leaderboard data yet. Join a class and start solving challenges.</p></section>'
+
+    return admin_layout(f'''
+    <h1>Leaderboard</h1>
+    <p class="muted">Rankings by class. Sorted by points, then challenges solved.</p>
+    {sections}
+    <script>
+    function copyText(btn, text) {{
+        navigator.clipboard.writeText(text).then(() => {{
+            const old = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.style.background = '#0f382a';
+            btn.style.color = '#7bf5c3';
+            setTimeout(() => {{
+                btn.textContent = old;
+                btn.style.background = '#16223b';
+                btn.style.color = '#aebddd';
+            }}, 1500);
+        }}).catch(() => {{}});
+    }}
+    </script>
+    ''', active='home', toasts=toasts)

@@ -18,6 +18,7 @@ from views.user import (
     change_password,
     reset_password_request,
     api_labs,
+    extend_lab,
 )
 from views.admin import (
     admin_dashboard,
@@ -41,6 +42,7 @@ from views.admin import (
     admin_reset_password,
     admin_join_class,
     remove_student_from_class,
+    admin_leaderboard,
 )
 
 bp = Blueprint("main", __name__)
@@ -62,6 +64,7 @@ bp.add_url_rule("/user/join-class", "join_class", join_class, methods=["POST"])
 bp.add_url_rule("/start/<challenge_id>", "start_challenge", start_challenge)
 bp.add_url_rule("/instance/<instance_id>", "view_instance", view_instance)
 bp.add_url_rule("/terminate/<instance_id>", "terminate", terminate)
+bp.add_url_rule("/extend/<instance_id>", "extend_lab", extend_lab)
 bp.add_url_rule("/submit_flag/<instance_id>", "submit_flag", submit_flag, methods=["POST"])
 bp.add_url_rule("/change-password", "change_password", change_password, methods=["GET", "POST"])
 bp.add_url_rule("/reset-password", "reset_password_request", reset_password_request, methods=["GET", "POST"])
@@ -89,3 +92,4 @@ bp.add_url_rule("/admin/domain/certificate", "create_domain_certificate", create
 bp.add_url_rule("/admin/settings", "admin_settings", admin_settings)
 bp.add_url_rule("/admin/users", "admin_users", admin_users)
 bp.add_url_rule("/admin/users/reset-password", "admin_reset_password", admin_reset_password, methods=["POST"])
+bp.add_url_rule("/admin/leaderboard", "admin_leaderboard", admin_leaderboard)

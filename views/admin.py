@@ -23,6 +23,7 @@ from page_templates.templates import (
     admin_class_detail_page,
     admin_settings_page,
     admin_users_page,
+    admin_leaderboard_page,
 )
 from views.utils import admin_required, request_toast_messages
 
@@ -388,6 +389,36 @@ def admin_settings():
 def admin_users():
     data = load_data()
     return admin_users_page(data["users"], toasts=request_toast_messages())
+
+
+@admin_required
+def admin_leaderboard():
+    data = load_data()
+    classrooms = data["classes"]
+    grouped = {}
+    for classroom in classrooms:
+        cid = classroom["id"]
+        assigned_challenge_ids = set(classroom.get("challenge_ids", []))
+        challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
+        scores = {}
+        for participant in data["users"]:
+            submitted_by_challenge = {}
+            for inst in data["instances"]:
+                if inst.get("user_id") == participant["id"] and inst.get("challenge_id") in assigned_challenge_ids:
+                    submitted_by_challenge.setdefault(inst["challenge_id"], set()).update(inst.get("submitted_flags", []))
+            points = 0
+            solved = 0
+            for challenge in challenges:
+                solved_flags = submitted_by_challenge.get(challenge["id"], set())
+                awarded = [spec for spec in flag_specs(challenge) if spec["flag"] in solved_flags]
+                points += sum(spec["points"] for spec in awarded)
+                if len(awarded) == len(flag_specs(challenge)) and awarded:
+                    solved += 1
+            if points:
+                scores[participant["id"]] = {"username": participant["username"], "points": points, "solved": solved, "user_id": participant["id"], "class_name": classroom["name"]}
+        ordered = sorted(scores.values(), key=lambda row: (-row["points"], -row["solved"], row["username"].lower()))
+        grouped[cid] = ordered
+    return admin_leaderboard_page(grouped, toasts=request_toast_messages())
 
 
 @admin_required

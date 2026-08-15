@@ -335,3 +335,36 @@ def terminate_instance(instance_id: str) -> bool:
 def auto_terminate(instance_id: str, delay: int) -> None:
     time.sleep(delay)
     terminate_instance(instance_id)
+
+
+def extend_instance(instance_id: str, extra_seconds: int = 3600) -> bool:
+    data = load_data()
+    inst = next((i for i in data["instances"] if i["id"] == instance_id), None)
+    if not inst or inst["status"] != "running":
+        return False
+    try:
+        from datetime import datetime
+        expires = datetime.fromisoformat(inst["expires_at"])
+        new_expires = max(expires, datetime.now()) + timedelta(seconds=extra_seconds)
+        inst["expires_at"] = new_expires.isoformat()
+        save_data(data)
+        return True
+    except Exception:
+        return False
+
+
+def cleanup_expired_instances() -> None:
+    data = load_data()
+    now = datetime.now()
+    changed = False
+    for inst in data["instances"]:
+        if inst.get("status") == "running" and inst.get("expires_at"):
+            try:
+                expires = datetime.fromisoformat(inst["expires_at"])
+                if now >= expires:
+                    terminate_instance(inst["id"])
+                    changed = True
+            except Exception:
+                pass
+    if changed:
+        save_data(data)

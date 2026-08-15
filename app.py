@@ -3,11 +3,13 @@
 Conos CTFploy Platform – Flask Application
 """
 import os
+import threading
+import time
 
 from flask import Flask
 from config import SECRET_KEY, CHALLENGES_STORE, SESSION_COOKIE_SECURE
 from data_store import _init_db
-from docker_ops import ensure_network
+from docker_ops import ensure_network, cleanup_expired_instances
 from routes import bp
 
 
@@ -28,6 +30,18 @@ except RuntimeError as exc:
     # Keep the UI available so an administrator can see and correct a missing
     # Docker socket rather than making the entire service return 502.
     app.logger.warning("Docker is unavailable during startup: %s", exc)
+
+
+def _cleanup_loop() -> None:
+    while True:
+        try:
+            cleanup_expired_instances()
+        except Exception:
+            pass
+        time.sleep(60)
+
+
+threading.Thread(target=_cleanup_loop, daemon=True).start()
 
 
 if __name__ == "__main__":

@@ -213,41 +213,58 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         submitted = card["submitted"]
 
         if inst:
+            is_expired = False
+            if inst.get("expires_at"):
+                try:
+                    from datetime import datetime
+                    expires = datetime.fromisoformat(inst["expires_at"])
+                    is_expired = datetime.now() >= expires
+                except Exception:
+                    pass
+            expired_warning = '<div class="card" style="border:1px solid #5e2230; background:#3d131f; margin-top:16px;"><h4 style="margin:0; color:#ffb3c1;">Lab expired. Extend or start a new instance.</h4></div>' if is_expired else ''
             connection = f'''
-            <p class="small-text" style="margin-bottom:8px;">Connect to your lab environment via SSH:</p>
-            <div class="terminal-snippet">
-                <span class="terminal-prompt">$</span>
-                <span class="terminal-cmd" id="modal-ssh-cmd-{idx}">ssh {escape(inst["username"])}@{escape(host)} -p {inst["host_port"]}</span>
-                <button class="copy-btn" onclick="copyText('modal-ssh-cmd-{idx}', this)">Copy</button>
-            </div>
-            <p class="small-text" style="margin-top:10px; margin-bottom:4px;">Password:</p>
-            <div class="terminal-snippet">
-                <span class="terminal-cmd" id="modal-ssh-passwd-{idx}" style="user-select:all; color:#ffd77a;">{escape(inst["password"])}</span>
-                <button class="copy-btn" onclick="copyText('modal-ssh-passwd-{idx}', this)">Copy</button>
+            <button class="secondary" onclick="toggleModalDetails({idx}, this)" style="margin-top:16px; font-family:inherit; width:auto; display:inline-flex; align-items:center; gap:6px;">Show connection details</button>
+            <div id="modal-details-{idx}" style="display:none; margin-top:12px;">
+                <p class="small-text" style="margin-bottom:8px;">Connect to your lab environment via SSH:</p>
+                <div class="terminal-snippet">
+                    <span class="terminal-prompt">$</span>
+                    <span class="terminal-cmd" id="modal-ssh-cmd-{idx}">ssh {escape(inst["username"])}@{escape(host)} -p {inst["host_port"]}</span>
+                    <button class="copy-btn" onclick="copyText('modal-ssh-cmd-{idx}', this)">Copy</button>
+                </div>
+                <p class="small-text" style="margin-top:10px; margin-bottom:4px;">Password:</p>
+                <div class="terminal-snippet">
+                    <span class="terminal-cmd" id="modal-ssh-passwd-{idx}" style="user-select:all; color:#ffd77a;">{escape(inst["password"])}</span>
+                    <button class="copy-btn" onclick="copyText('modal-ssh-passwd-{idx}', this)">Copy</button>
+                </div>
             </div>
             '''
             if submitted:
                 action_area = f'''
+                {expired_warning}
                 <div class="card" style="border:1px solid #164e3c; background:#0e3025; margin-top:16px;">
                     <h4 style="margin:0; color:#8efcd4;">Challenge completed</h4>
                 </div>
-                <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('Terminate this lab?')" style="margin-top:12px;">
-                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-family:inherit;">Terminate Lab</button>
+                <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('End this lab?')" style="margin-top:12px;">
+                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-family:inherit; width:auto; padding:6px 12px; font-size:12px;">{icon("x")} End</button>
                 </form>
                 '''
             elif remaining > 0:
                 action_area = f'''
+                {expired_warning}
                 <form method="post" action="/submit_flag/{inst['id']}" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px;">
                     <input type="hidden" name="flag_index" value="{idx}">
                     <input name="flag" placeholder="CN{{...}}" required style="flex:1; min-width:240px; margin:0; font-family:inherit;">
                     <button type="submit" style="font-family:inherit;">Submit Flag</button>
                 </form>
-                <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('Terminate this lab?')" style="margin-top:10px;">
-                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-size:12px; padding:6px 12px; font-family:inherit;">Terminate Lab</button>
+                <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('End this lab?')" style="margin-top:10px;">
+                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-size:12px; padding:6px 12px; font-family:inherit; width:auto;">{icon("x")} End</button>
                 </form>
                 '''
             else:
-                action_area = '<div class="card" style="border:1px solid #5e2230; background:#3d131f; margin-top:16px;"><h4 style="margin:0; color:#ffb3c1;">No attempts remaining</h4></div>'
+                action_area = f'''
+                {expired_warning}
+                <div class="card" style="border:1px solid #5e2230; background:#3d131f; margin-top:16px;"><h4 style="margin:0; color:#ffb3c1;">No attempts remaining</h4></div>
+                '''
         else:
             connection = ""
             action_area = f'''
@@ -290,6 +307,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
 
     countdown_html = ""
     if expires_at:
+        instance_id = inst.get("id", "") if inst else ""
         countdown_html = f'''
         <div class="card" style="margin-bottom:18px; border:1px solid #203154; background:#11192e;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
@@ -297,13 +315,17 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                     <strong style="font-size:14px;">Lab Timer</strong>
                     <div class="small-text" style="margin-top:4px;">Auto-terminates when timer reaches zero</div>
                 </div>
-                <span id="lab-countdown" style="font-size:20px; font-weight:800; color:#ffd77a; font-variant-numeric:tabular-nums;">--:--</span>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span id="lab-countdown" style="font-size:20px; font-weight:800; color:#ffd77a; font-variant-numeric:tabular-nums;">--:--</span>
+                    {f'<form method="post" action="/extend/{instance_id}" style="display:inline;" onsubmit="return confirm(\'Extend this lab by 1 hour?\')"><button type="submit" class="secondary" style="font-size:11px; padding:5px 10px; font-family:inherit;">+1h</button></form>' if instance_id else ''}
+                </div>
             </div>
         </div>
         <script>
         (function() {{
             const target = {expires_at};
             const el = document.getElementById('lab-countdown');
+            const warned = new Set();
             function tick() {{
                 const now = Date.now();
                 let diff = Math.max(0, Math.floor((target - now) / 1000));
@@ -313,6 +335,11 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 if (diff <= 0 && el) {{
                     el.textContent = '00:00';
                     el.style.color = '#ffb3c1';
+                }}
+                const mins = Math.ceil(diff / 60);
+                if ([1, 5, 10].includes(mins) && !warned.has(mins)) {{
+                    warned.add(mins);
+                    showToast(mins + ' minute' + (mins > 1 ? 's' : '') + ' remaining. Extend your lab by 1 hour?', 'info');
                 }}
             }}
             tick();
@@ -384,6 +411,13 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         }}
         document.body.removeChild(ta);
     }}
+    function toggleModalDetails(idx, btn) {{
+        const details = document.getElementById('modal-details-' + idx);
+        if (!details || !btn) return;
+        const isHidden = details.style.display === 'none' || details.style.display === '';
+        details.style.display = isHidden ? 'block' : 'none';
+        btn.textContent = isHidden ? 'Hide connection details' : 'Show connection details';
+    }}
     </script>
     ''', active='users', toasts=toasts_list)
 
@@ -391,14 +425,17 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
 def leaderboard_page(grouped_entries) -> str:
     sections = ''
     for class_id, entries in grouped_entries.items():
-        class_name = escape(entries[0]['class_name']) if entries else class_id
+        class_name = escape(entries[0]['class_name']) if entries else escape(class_id)
         rows = ''.join(
             f'''<li><div class="row"><strong>#{index} {escape(entry["username"])}</strong><div style="text-align:right;"><strong style="color:#ffd77a;">{entry["points"]} points</strong><div class="small-text">{entry["solved"]} challenge(s) solved</div></div></div></li>'''
             for index, entry in enumerate(entries, start=1)
         ) or '<li>No scores yet.</li>'
         sections += f'''
         <section class="card" style="margin-bottom:18px;">
-            <h3>{class_name}</h3>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                <h3 style="margin:0;">{class_name}</h3>
+                <button class="copy-class" onclick="copyText(this, '/leaderboard?class_id={class_id}')">Copy link {icon("copy")}</button>
+            </div>
             <ul class="list">{rows}</ul>
         </section>
         '''
@@ -410,4 +447,19 @@ def leaderboard_page(grouped_entries) -> str:
     <h1>Leaderboard</h1>
     <p class="muted">Rankings by class. Sorted by points, then challenges solved.</p>
     {sections}
+    <script>
+    function copyText(btn, text) {{
+        navigator.clipboard.writeText(text).then(() => {{
+            const old = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.style.background = '#0f382a';
+            btn.style.color = '#7bf5c3';
+            setTimeout(() => {{
+                btn.textContent = old;
+                btn.style.background = '#16223b';
+                btn.style.color = '#aebddd';
+            }}, 1500);
+        }}).catch(() => {{}});
+    }}
+    </script>
     ''', active='leaderboard')
