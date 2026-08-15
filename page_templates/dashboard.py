@@ -4,7 +4,7 @@ from page_templates.layout import user_layout, icon
 from challenge_meta import total_points
 
 
-def dashboard_page(user, user_classes, active_instances, solved_count, total_count, toasts=None) -> str:
+def dashboard_page(user, user_classes, active_instances, toasts=None) -> str:
     active_labs_html = ''
     if active_instances:
         labs_list = ''
@@ -29,52 +29,56 @@ def dashboard_page(user, user_classes, active_instances, solved_count, total_cou
         </section>
         '''
 
-    class_blocks = ''.join(
-        f'''<li><div class="row"><div><strong>{escape(c["name"])}</strong><div class="small-text">{len(c['challenge_ids'])} challenge(s) · Join code: <code>{escape(c['join_code'])}</code></div></div><a href="/classes/{c["id"]}"><button class="secondary">Open class</button></a></div></li>'''
-        for c in user_classes
-    ) or '<li>You have not joined a class yet.</li>'
-
-    solved_percentage = 0
-    if total_count > 0:
-        solved_percentage = int((solved_count / total_count) * 100)
-
-    stats_html = f'''
-    <div class="grid" style="margin-bottom: 24px;">
-        <div class="card">
-            <div class="small-text">Classrooms Joined</div>
-            <div class="stat">{len(user_classes)}</div>
-        </div>
-        <div class="card">
-            <div class="small-text">Assigned Challenges</div>
-            <div class="stat">{total_count}</div>
-        </div>
-        <div class="card">
-            <div class="small-text">Challenges Solved</div>
-            <div class="stat">{solved_count} <span style="font-size: 14px; font-weight: normal; color: #aebddd;">({solved_percentage}%)</span></div>
-        </div>
-    </div>
-    '''
+    leaderboard_html = ''
+    if user_classes:
+        cards = []
+        for classroom in user_classes:
+            class_id = classroom['id']
+            class_name = escape(classroom['name'])
+            cards.append(f'''
+            <div class="card" style="margin-bottom:18px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                    <h3 style="margin:0;">{class_name}</h3>
+                    <a href="/leaderboard?class_id={class_id}" class="small-text">View leaderboard {icon("arrow-right")}</a>
+                </div>
+                <div id="leaderboard-{class_id}"><span class="small-text">Loading...</span></div>
+                <script>
+                (function() {{
+                    fetch('/api/leaderboard?class_id={class_id}')
+                        .then(r => r.json())
+                        .then(data => {{
+                            const el = document.getElementById('leaderboard-{class_id}');
+                            if (!el || !data.entries || !data.entries.length) {{
+                                el.innerHTML = '<span class=\\'small-text\\'>No scores yet.</span>';
+                                return;
+                            }}
+                            const myEntry = data.entries.find(e => e.user_id === '{user['id']}');
+                            const myRank = myEntry ? data.entries.indexOf(myEntry) + 1 : '-';
+                            const myPoints = myEntry ? myEntry.points : 0;
+                            const mySolved = myEntry ? myEntry.solved : 0;
+                            let html = '<ul class=\\'list\\'>';
+                            data.entries.slice(0, 5).forEach((entry, i) => {{
+                                const isMe = entry.user_id === '{user['id']}';
+                                html += '<li><div class=\\'row\\'><div><strong>' + (i + 1) + '. ' + escape(entry.username) + (isMe ? ' <span style=\\'color:#ffd77a;\\'>(you)</span>' : '') + '</strong><div class=\\'small-text\\'>' + entry.solved + ' challenge(s) solved</div></div><div style=\\'text-align:right;\\'><strong style=\\'color:#ffd77a;\\'>' + entry.points + ' points</strong></div></div></li>';
+                            }});
+                            html += '</ul>';
+                            html += '<div style=\\'margin-top:12px; padding-top:12px; border-top:1px solid #1f2d47;\\'><strong>Your rank: #' + myRank + ' · ' + myPoints + ' points · ' + mySolved + ' solved</strong></div>';
+                            el.innerHTML = html;
+                        }})
+                        .catch(() => {{
+                            document.getElementById('leaderboard-{class_id}').innerHTML = '<span class=\\'small-text\\'>Failed to load.</span>';
+                        }});
+                }})();
+                </script>
+            </div>
+            ''')
+        leaderboard_html = '<h1>Leaderboard</h1><p class="muted" style="margin-bottom: 18px;">Your rankings across joined classes.</p>' + ''.join(cards)
 
     return user_layout(f'''
     <h1>Welcome back, {escape(user['username'])}</h1>
-    <p class="muted" style="margin-bottom: 24px;">Track your training labs, classrooms, and solver progress.</p>
-    {stats_html}
+    <p class="muted" style="margin-bottom: 24px;">Track your training labs and rankings.</p>
     {active_labs_html}
-    <div class="grid">
-        <section class="card">
-            <h3>Join a class</h3>
-            <p class="small-text">Enter the join code provided by your instructor.</p>
-            <form method="post" action="/user/join-class">
-                <input name="code" placeholder="CLASS-ABC123" required>
-                <button style="width: 100%; margin-top: 10px;">Join class</button>
-            </form>
-        </section>
-        <section class="card">
-            <h3>My classes</h3>
-            <ul class="list">{class_blocks}</ul>
-            <div style="margin-top: 16px;"><a href="/classes" class="small-text">View all classes {icon("arrow-right")}</a></div>
-        </section>
-    </div>
+    {leaderboard_html}
     ''', active='home', toasts=toasts)
 
 
@@ -83,7 +87,7 @@ def classes_page(classes, toasts=None) -> str:
         f'''<div style="width:50%; padding:0 6px 12px 0; box-sizing:border-box;"><div class="card" style="margin-bottom:0; height:100%;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;"><div><strong>{escape(classroom['name'])}</strong><div class="small-text">{len(classroom['challenge_ids'])} assigned challenge(s)</div></div><a href="/classes/{classroom['id']}"><button class="secondary">Open class</button></a></div></div></div>'''
         for classroom in classes
     ) or '<div style="width:100%;">No classes joined yet.</div>'
-    return user_layout(f'''<h1>My classes</h1><p class="muted">Open a class to view only its assigned challenges.</p><section class="card" style="padding:12px;"><div style="display:flex; flex-wrap:wrap; margin:0 -6px;">{items}</div></section>''', active='users', toasts=toasts)
+    return user_layout(f'''<h1>My classes</h1><p class="muted">Open a class to view only its assigned challenges.</p><div style="display:flex; flex-wrap:wrap; margin:0 -6px;">{items}</div>''', active='users', toasts=toasts)
 
 
 def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
@@ -151,14 +155,10 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
     for idx, spec in enumerate(flags):
         flag_name = spec.get("flag", "")
         submitted = flag_name in inst.get("submitted_flags", []) if inst else False
-        status_class = "status-success" if submitted else "status-ready"
-        status_text = "solved" if submitted else "ready"
         challenge_cards.append({
             "index": idx,
             "spec": spec,
             "submitted": submitted,
-            "status_class": status_class,
-            "status_text": status_text,
         })
 
     cards_html = ""
@@ -166,13 +166,19 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         idx = card["index"]
         spec = card["spec"]
         description = escape(spec.get("description", ""))
-        hints = spec.get("hints", [])
-        hints_list = "".join(f"<li style='margin-top:6px;'>{format_hint(h)}</li>" for h in hints)
-        hints_block = f"<ul style='margin-left:18px; font-size:13px; color:#8da2ce; list-style:square;'>{hints_list}</ul>" if hints_list else ""
-        flag_value = escape(spec.get("flag", ""))
-        card_class = "flag-card solved" if card["submitted"] else "flag-card"
-        remaining = attempts_remaining.get(idx, spec.get("max_attempts", 3))
         points = spec.get("points", 100)
+        submitted = card["submitted"]
+
+        if submitted:
+            card_class = "flag-card solved"
+            status_class = "status-success"
+            status_text = "completed"
+            badge_extra = 'style="background:#0f382a; color:#7bf5c3; border-color:#164e3c;"'
+        else:
+            card_class = "flag-card"
+            status_class = "status-ready"
+            status_text = "ready"
+            badge_extra = 'style="background:#1b263e; color:#aebddd; border-color:#2d3e5c;"'
 
         cards_html += f'''
         <div class="{card_class}" onclick="openModal({idx})" style="cursor:pointer; position:relative;">
@@ -182,7 +188,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                     <div class="small-text" style="margin-top:4px;">{description}</div>
                     <div class="small-text" style="margin-top:4px;"><span style="color:#ffd77a; font-weight:600;">{points} points</span></div>
                 </div>
-                <span class="badge-external {card['status_class']}">{card['status_text']}</span>
+                <span class="badge-external {status_class}" {badge_extra}>{status_text}</span>
             </div>
         </div>
         '''
@@ -202,10 +208,9 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         hints = spec.get("hints", [])
         hints_list = "".join(f"<li style='margin-top:6px;'>{format_hint(h)}</li>" for h in hints)
         hints_block = f"<ul style='margin-left:18px; font-size:13px; color:#8da2ce; list-style:square;'>{hints_list}</ul>" if hints_list else ""
-        flag_value = escape(spec.get("flag", ""))
-        submitted = card["submitted"]
-        remaining = attempts_remaining.get(idx, spec.get("max_attempts", 3))
         points = spec.get("points", 100)
+        remaining = attempts_remaining.get(idx, spec.get("max_attempts", 3))
+        submitted = card["submitted"]
 
         if inst:
             connection = f'''
@@ -227,7 +232,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                     <h4 style="margin:0; color:#8efcd4;">Challenge completed</h4>
                 </div>
                 <form method="post" action="/terminate/{inst['id']}" onsubmit="return confirm('Terminate this lab?')" style="margin-top:12px;">
-                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230;">Terminate Lab</button>
+                    <button type="submit" class="secondary" style="color:#ffb3c1; border-color:#5e2230; font-family:inherit;">Terminate Lab</button>
                 </form>
                 '''
             elif remaining > 0:
@@ -255,7 +260,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
                     <div>
                         <strong style="font-size:18px;">Challenge {idx + 1}</strong>
-                        <span class="badge-external {card['status_class']}" style="position:static; margin-left:8px;">{card['status_text']}</span>
+                        <span class="badge-external {status_class}" style="position:static; margin-left:8px;" {badge_extra}>{status_text}</span>
                     </div>
                     <button class="modal-close" onclick="closeModal({idx})">{icon("circle-x")}</button>
                 </div>
@@ -278,10 +283,6 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
             action_card_html = '<div class="card" style="text-align: center; padding: 32px 24px;"><span class="status-badge status-building" style="margin-bottom: 12px;">Building Challenge</span><p class="muted small-text">The instructor recently uploaded this challenge and it is currently compiling. Please wait...</p></div>'
         else:
             action_card_html = '<div class="card" style="text-align: center; padding: 32px 24px; border: 1px solid #3d131f;"><span class="status-badge status-failed" style="margin-bottom: 12px;">Build Failed</span><p class="muted small-text">This challenge could not build correctly. Please contact your administrator.</p></div>'
-
-    toasts_list = []
-    if msg:
-        toasts_list.append(("success" if msg.startswith("Accepted!") else "error", msg))
 
     toasts_list = []
     if msg:
@@ -387,15 +388,26 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
     ''', active='users', toasts=toasts_list)
 
 
-def leaderboard_page(entries) -> str:
-    rows = ''.join(
-        f'''<li><div class="row"><strong>#{index} {escape(entry["username"])}</strong><div style="text-align:right;"><strong>{entry["points"]} points</strong><div class="small-text">{entry["solved"]} challenge(s) solved</div></div></div></li>'''
-        for index, entry in enumerate(entries, start=1)
-    ) or '<li>No scores yet.</li>'
+def leaderboard_page(grouped_entries) -> str:
+    sections = ''
+    for class_id, entries in grouped_entries.items():
+        class_name = escape(entries[0]['class_name']) if entries else class_id
+        rows = ''.join(
+            f'''<li><div class="row"><strong>#{index} {escape(entry["username"])}</strong><div style="text-align:right;"><strong style="color:#ffd77a;">{entry["points"]} points</strong><div class="small-text">{entry["solved"]} challenge(s) solved</div></div></div></li>'''
+            for index, entry in enumerate(entries, start=1)
+        ) or '<li>No scores yet.</li>'
+        sections += f'''
+        <section class="card" style="margin-bottom:18px;">
+            <h3>{class_name}</h3>
+            <ul class="list">{rows}</ul>
+        </section>
+        '''
+
+    if not sections:
+        sections = '<section class="card"><p class="muted">No leaderboard data yet. Join a class and start solving challenges.</p></section>'
+
     return user_layout(f'''
     <h1>Leaderboard</h1>
-    <p class="muted">Ranked by points earned from submitted flags.</p>
-    <section class="card">
-        <ul class="list">{rows}</ul>
-    </section>
+    <p class="muted">Rankings by class. Sorted by points, then challenges solved.</p>
+    {sections}
     ''', active='leaderboard')

@@ -1,6 +1,6 @@
 from html import escape
 from flask import redirect, request, session, url_for
-from data_store import get_user_by_id, load_data, save_data
+from data_store import get_user_by_id, load_data, save_data, hash_password, verify_password
 from docker_ops import create_container, terminate_instance
 from domain_ops import public_ip
 from challenge_meta import flag_specs, flag_values, total_points
@@ -12,6 +12,7 @@ from page_templates.dashboard import (
     student_challenge_detail_page,
     leaderboard_page,
 )
+from page_templates.auth import change_password_page, reset_password_request_page
 from views.utils import login_required, request_toast_messages
 
 
@@ -21,22 +22,6 @@ def dashboard():
     user = get_user_by_id(session["user_id"])
     user_classes = [c for c in data["classes"] if user["id"] in c.get("member_ids", [])]
 
-    # Calculate solved count and total count across assigned challenges
-    assigned_challenge_ids = set()
-    for c in user_classes:
-        assigned_challenge_ids.update(c.get("challenge_ids", []))
-
-    challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
-    solved_count = 0
-    for ch in challenges:
-        for inst in data["instances"]:
-            if inst["user_id"] == user["id"] and inst["challenge_id"] == ch["id"]:
-                expected = flag_values(ch, inst.get("dynamic_flag"))
-                submitted = set(inst.get("submitted_flags", []))
-                if set(expected).issubset(submitted):
-                    solved_count += 1
-                    break
-
     active_instances = []
     for inst in data["instances"]:
         if inst["user_id"] == user["id"] and inst["status"] == "running":
@@ -44,8 +29,8 @@ def dashboard():
             if ch:
                 active_instances.append({"instance": inst, "challenge": ch})
 
-    flashes = request_toast_messages()
-    return dashboard_page(user, user_classes, active_instances, solved_count, len(challenges), toasts=flashes)
+    toasts = request_toast_messages()
+    return dashboard_page(user, user_classes, active_instances, toasts=toasts)
 
 
 @login_required
@@ -72,7 +57,6 @@ def student_challenges():
     data = load_data()
     user = get_user_by_id(session["user_id"])
 
-    # Get all challenge IDs assigned to classes the user belongs to
     user_classes = [c for c in data["classes"] if user["id"] in c.get("member_ids", [])]
     assigned_challenge_ids = set()
     for c in user_classes:
@@ -81,7 +65,6 @@ def student_challenges():
     challenges = [c for c in data["challenges"] if c["id"] in assigned_challenge_ids]
     instances = [i for i in data["instances"] if i["user_id"] == user["id"] and i["status"] == "running"]
 
-    # Calculate solved challenge IDs
     solved_challenge_ids = set()
     for ch in challenges:
         expected = {f["flag"] for f in flag_specs(ch)}
@@ -201,36 +184,6 @@ def terminate(instance_id):
 
 
 @login_required
-def leaderboard():
-    data = load_data()
-    user = get_user_by_id(session["user_id"])
-    user_classes = [c for c in data["classes"] if user["id"] in c.get("member_ids", [])]
-    assigned_challenge_ids = set()
-    for c in user_classes:
-        assigned_challenge_ids.update(c.get("challenge_ids", []))
-    challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
-
-    scores = {}
-    for participant in data["users"]:
-        submitted_by_challenge = {}
-        for inst in data["instances"]:
-            if inst.get("user_id") == participant["id"] and inst.get("challenge_id") in assigned_challenge_ids:
-                submitted_by_challenge.setdefault(inst["challenge_id"], set()).update(inst.get("submitted_flags", []))
-        points = 0
-        solved = 0
-        for challenge in challenges:
-            solved_flags = submitted_by_challenge.get(challenge["id"], set())
-            awarded = [spec for spec in flag_specs(challenge) if spec["flag"] in solved_flags]
-            points += sum(spec["points"] for spec in awarded)
-            if len(awarded) == len(flag_specs(challenge)) and awarded:
-                solved += 1
-        if points:
-            scores[participant["id"]] = {"username": participant["username"], "points": points, "solved": solved}
-    ordered = sorted(scores.values(), key=lambda row: (-row["points"], -row["solved"], row["username"].lower()))
-    return leaderboard_page(ordered)
-
-
-@login_required
 def submit_flag(instance_id):
     data = load_data()
     instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
@@ -280,3 +233,83 @@ def _record_attempt(instance: dict, flag_index: int) -> None:
     counts = instance.setdefault("attempt_counts", {})
     key = str(flag_index)
     counts[key] = int(counts.get(key, 0)) + 1
+
+
+@login_required
+def leaderboard():
+    class_id = request.args.get("class_id")
+    data = load_data()
+    user = get_user_by_id(session["user_id"])
+
+    if class_id:
+        classrooms = [c for c in data["classes"] if c["id"] == class_id and user["id"] in c.get("member_ids", [])]
+    else:
+        classrooms = [c for c in data["classes"] if user["id"] in c.get("member_ids", [])]
+
+    grouped = {}
+    for classroom in classrooms:
+        cid = classroom["id"]
+        assigned_challenge_ids = set(classroom.get("challenge_ids", []))
+        challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
+
+        scores = {}
+        for participant in data["users"]:
+            submitted_by_challenge = {}
+            for inst in data["instances"]:
+                if inst.get("user_id") == participant["id"] and inst.get("challenge_id") in assigned_challenge_ids:
+                    submitted_by_challenge.setdefault(inst["challenge_id"], set()).update(inst.get("submitted_flags", []))
+            points = 0
+            solved = 0
+            for challenge in challenges:
+                solved_flags = submitted_by_challenge.get(challenge["id"], set())
+                awarded = [spec for spec in flag_specs(challenge) if spec["flag"] in solved_flags]
+                points += sum(spec["points"] for spec in awarded)
+                if len(awarded) == len(flag_specs(challenge)) and awarded:
+                    solved += 1
+            if points:
+                scores[participant["id"]] = {"username": participant["username"], "points": points, "solved": solved, "user_id": participant["id"], "class_name": classroom["name"]}
+
+        ordered = sorted(scores.values(), key=lambda row: (-row["points"], -row["solved"], row["username"].lower()))
+        grouped[cid] = ordered
+
+    if request.args.get("format") == "json":
+        from flask import jsonify
+        all_entries = []
+        for cid, entries in grouped.items():
+            all_entries.extend(entries)
+        return jsonify({"entries": all_entries})
+
+    if class_id and class_id in grouped:
+        return leaderboard_page({class_id: grouped[class_id]})
+    return leaderboard_page(grouped)
+
+
+@login_required
+def change_password():
+    if request.method == "POST":
+        old_password = request.form.get("old_password", "")
+        new_password = request.form.get("new_password", "")
+        if not old_password or not new_password:
+            return redirect(url_for("main.change_password", error="Both fields are required"))
+        data = load_data()
+        user = get_user_by_id(session["user_id"], data=data)
+        if not user or not _verify_password(old_password, user["password_hash"]):
+            return redirect(url_for("main.change_password", error="Current password is incorrect"))
+        if len(new_password) < 6:
+            return redirect(url_for("main.change_password", error="New password must be at least 6 characters"))
+        user["password_hash"] = hash_password(new_password)
+        save_data(data)
+        return redirect(url_for("main.dashboard", success="Password updated successfully"))
+    return change_password_page(toasts=request_toast_messages())
+
+
+@login_required
+def reset_password_request():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        data = load_data()
+        user = next((u for u in data["users"] if u["username"] == username), None)
+        if not user:
+            return redirect(url_for("main.reset_password_request", error="Username not found"))
+        return redirect(url_for("main.reset_password_request", success=f"Admin has been notified. Contact your administrator to reset your password."))
+    return reset_password_request_page(error="Username not found" if request.args.get("error") else False)

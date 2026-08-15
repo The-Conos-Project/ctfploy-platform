@@ -11,7 +11,7 @@ import shutil
 import re
 from flask import redirect, request, Response, url_for
 from config import BUILD_LOGS_STORE, CHALLENGES_STORE
-from data_store import load_data, save_data, get_setting, set_setting
+from data_store import load_data, save_data, get_setting, set_setting, hash_password
 from domain_ops import prepare_domain, issue_certificate, public_ip
 from docker_ops import build_image_thread, build_log_path, terminate_instance
 from page_templates.templates import (
@@ -21,7 +21,8 @@ from page_templates.templates import (
     build_log_page,
     admin_classes_page,
     admin_class_detail_page,
-    admin_domain_page,
+    admin_settings_page,
+    admin_users_page,
 )
 from views.utils import admin_required, request_toast_messages
 
@@ -355,7 +356,7 @@ def admin_update():
 
 @admin_required
 def admin_domain():
-    return admin_domain_page(get_setting("custom_domain", ""), public_ip(), toasts=request_toast_messages())
+    return redirect(url_for("main.admin_settings"))
 
 
 @admin_required
@@ -363,9 +364,9 @@ def save_domain():
     try:
         domain = prepare_domain(request.form.get("domain", ""))
         set_setting("custom_domain", domain)
-        return redirect(url_for("main.admin_domain", success="DNS validation endpoint is ready. Create the A record, then issue the certificate."))
+        return redirect(url_for("main.admin_settings", success="DNS validation endpoint is ready. Create the A record, then issue the certificate."))
     except Exception as exc:
-        return redirect(url_for("main.admin_domain", error=str(exc)))
+        return redirect(url_for("main.admin_settings", error=str(exc)))
 
 
 @admin_required
@@ -373,6 +374,48 @@ def create_domain_certificate():
     try:
         domain = get_setting("custom_domain", "")
         issue_certificate(domain, request.form.get("email", ""))
-        return redirect(url_for("main.admin_domain", success="Certificate issued and HTTPS enabled."))
+        return redirect(url_for("main.admin_settings", success="Certificate issued and HTTPS enabled."))
     except Exception as exc:
-        return redirect(url_for("main.admin_domain", error=f"Certificate request failed: {exc}"))
+        return redirect(url_for("main.admin_settings", error=f"Certificate request failed: {exc}"))
+
+
+@admin_required
+def admin_settings():
+    return admin_settings_page(get_setting("custom_domain", ""), public_ip(), toasts=request_toast_messages())
+
+
+@admin_required
+def admin_users():
+    data = load_data()
+    return admin_users_page(data["users"], toasts=request_toast_messages())
+
+
+@admin_required
+def admin_reset_password():
+    user_id = request.form.get("user_id", "").strip()
+    new_password = request.form.get("new_password", "").strip()
+    if not user_id or not new_password:
+        return redirect(url_for("main.admin_users", error="User ID and new password are required"))
+    if len(new_password) < 6:
+        return redirect(url_for("main.admin_users", error="Password must be at least 6 characters"))
+    data = load_data()
+    user = next((u for u in data["users"] if u["id"] == user_id), None)
+    if not user:
+        return redirect(url_for("main.admin_users", error="User not found"))
+    user["password_hash"] = hash_password(new_password)
+    save_data(data)
+    return redirect(url_for("main.admin_users", success=f"Password reset for {user['username']}"))
+
+
+@admin_required
+def admin_join_class():
+    code = request.form.get("code", "").strip().upper()
+    data = load_data()
+    classroom = next((c for c in data["classes"] if c["join_code"] == code), None)
+    if not classroom:
+        return redirect(url_for("main.admin_classes", error="Invalid class code"))
+    admin_id = session.get("user_id")
+    if admin_id not in classroom.get("member_ids", []):
+        classroom["member_ids"].append(admin_id)
+        save_data(data)
+    return redirect(url_for("main.admin_classes", success=f"Joined {classroom['name']}"))

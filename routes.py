@@ -15,6 +15,8 @@ from views.user import (
     student_challenges,
     student_challenge_detail,
     leaderboard,
+    change_password,
+    reset_password_request,
 )
 from views.admin import (
     admin_dashboard,
@@ -33,6 +35,10 @@ from views.admin import (
     assign_challenge_to_class,
     delete_class,
     remove_challenge_from_class,
+    admin_settings,
+    admin_users,
+    admin_reset_password,
+    admin_join_class,
 )
 
 bp = Blueprint("main", __name__)
@@ -48,11 +54,14 @@ bp.add_url_rule("/classes/<class_id>", "class_detail", class_detail)
 bp.add_url_rule("/challenges", "student_challenges", student_challenges)
 bp.add_url_rule("/challenges/<challenge_id>", "student_challenge_detail", student_challenge_detail)
 bp.add_url_rule("/leaderboard", "leaderboard", leaderboard)
+bp.add_url_rule("/api/leaderboard", "api_leaderboard", leaderboard)
 bp.add_url_rule("/user/join-class", "join_class", join_class, methods=["POST"])
 bp.add_url_rule("/start/<challenge_id>", "start_challenge", start_challenge)
 bp.add_url_rule("/instance/<instance_id>", "view_instance", view_instance)
 bp.add_url_rule("/terminate/<instance_id>", "terminate", terminate)
 bp.add_url_rule("/submit_flag/<instance_id>", "submit_flag", submit_flag, methods=["POST"])
+bp.add_url_rule("/change-password", "change_password", change_password, methods=["GET", "POST"])
+bp.add_url_rule("/reset-password", "reset_password_request", reset_password_request, methods=["GET", "POST"])
 
 bp.add_url_rule("/admin/sign-in", "admin_sign_in", admin_sign_in, methods=["GET", "POST"])
 bp.add_url_rule("/admin/logout", "admin_logout", admin_logout)
@@ -68,7 +77,11 @@ bp.add_url_rule("/admin/classes/create", "create_class", create_class, methods=[
 bp.add_url_rule("/admin/classes/assign", "assign_challenge_to_class", assign_challenge_to_class, methods=["POST"])
 bp.add_url_rule("/admin/classes/delete/<class_id>", "delete_class", delete_class, methods=["POST"])
 bp.add_url_rule("/admin/classes/remove_challenge", "remove_challenge_from_class", remove_challenge_from_class, methods=["POST"])
+bp.add_url_rule("/admin/classes/join", "admin_join_class", admin_join_class, methods=["POST"])
 bp.add_url_rule("/admin/update", "admin_update", admin_update, methods=["GET", "POST"])
 bp.add_url_rule("/admin/domain", "admin_domain", admin_domain)
 bp.add_url_rule("/admin/domain", "save_domain", save_domain, methods=["POST"])
 bp.add_url_rule("/admin/domain/certificate", "create_domain_certificate", create_domain_certificate, methods=["POST"])
+bp.add_url_rule("/admin/settings", "admin_settings", admin_settings)
+bp.add_url_rule("/admin/users", "admin_users", admin_users)
+bp.add_url_rule("/admin/users/reset-password", "admin_reset_password", admin_reset_password, methods=["POST"])
