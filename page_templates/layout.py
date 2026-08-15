@@ -32,7 +32,7 @@ def layout(content: str, title="CTFploy", sidebar=None, toasts=None) -> str:
     nav = ""
     if sidebar:
         links, active, subtitle = sidebar
-        nav = f'<aside class="sidebar" id="sidebar"><div class="sidebar-header"><div class="brand">CTFploy<small>{escape(subtitle)}</small></div><button class="collapse-toggle" type="button" aria-label="Toggle sidebar" onclick="toggleSidebar()">☰</button></div><nav class="nav">' + ''.join(f'<a class="{"active" if key == active else ""}" href="{href}">{icon(key)}<span>{label}</span></a>' for key, href, label in links) + f'</nav><div class="logout"><a class="logout-link" href="{("/admin/logout" if subtitle == "Administrator" else "/logout")}">{icon("log-out")}<span>Logout</span></a></div></aside>'
+        nav = f'<aside class="sidebar" id="sidebar"><div class="sidebar-header"><div class="brand">CTFploy<small>{escape(subtitle)}</small></div><button class="collapse-toggle" type="button" aria-label="Toggle sidebar" onclick="toggleSidebar()">☰</button></div><nav class="nav">' + ''.join(f'<a class="{"active" if key == active else ""}" href="{href}">{icon(key)}<span>{label}</span></a>' for key, href, label in links) + f'</nav><div class="logout"><a class="logout-link" href="{("/admin/logout" if subtitle == "Admin" else "/logout")}">{icon("log-out")}<span>Logout</span></a></div></aside>'
     body = f'<div class="shell">{nav}<main class="main">{content}</main></div>' if sidebar else content
     script = "<script>function toggleSidebar(){const s=document.getElementById('sidebar');s.classList.toggle('collapsed');localStorage.setItem('ctfploy-sidebar',s.classList.contains('collapsed')?'1':'0')}if(localStorage.getItem('ctfploy-sidebar')==='1')document.getElementById('sidebar')?.classList.add('collapsed')</script>" if sidebar else ''
     toast_container = '<div class="toast-container" id="toast-container"></div>'
@@ -64,8 +64,8 @@ def centered_layout(content: str, title="CTFploy", toasts=None) -> str:
 
 
 def admin_layout(content, active="home", toasts=None):
-    return layout(content, "CTFploy Admin", ([('home','/admin','Overview'),('users','/admin/classes','Classes'),('boxes','/admin/challenges','Challenges'),('settings','/admin/settings','Settings')], active, 'Administrator'), toasts=toasts)
+    return layout(content, "CTFploy Admin", ([('home','/admin','Overview'),('users','/admin/classes','Classes'),('boxes','/admin/challenges','Challenges'),('settings','/admin/settings','Settings')], active, 'Admin'), toasts=toasts)
 
 
 def user_layout(content, active="home", toasts=None):
-    return layout(content, "CTFploy", ([('home','/dashboard','Dashboard'),('users','/classes','My classes'),('terminal','/leaderboard','Leaderboard'),('key','/change-password','Password')], active, 'Student workspace'), toasts=toasts)
+    return layout(content, "CTFploy", ([('home','/dashboard','Dashboard'),('users','/classes','My classes'),('terminal','/leaderboard','Leaderboard'),('key','/change-password','Password')], active, 'Student'), toasts=toasts)
