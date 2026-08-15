@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt docker-compose
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py config.py data_store.py docker_ops.py domain_ops.py challenge_meta.py routes.py ./
 COPY views ./views

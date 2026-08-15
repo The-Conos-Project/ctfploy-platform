@@ -339,7 +339,7 @@ def admin_update():
         try:
             import subprocess
             result = subprocess.run(
-                ["bash", "-lc", "cd /etc/ctfploy && docker-compose pull && docker-compose up -d --force-recreate"],
+                ["bash", "-lc", "cd /etc/ctfploy && docker compose pull && docker compose up -d --force-recreate"],
                 capture_output=True,
                 text=True,
                 check=True,
