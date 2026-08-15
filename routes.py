@@ -17,6 +17,7 @@ from views.user import (
     leaderboard,
     change_password,
     reset_password_request,
+    api_labs,
 )
 from views.admin import (
     admin_dashboard,
@@ -39,6 +40,7 @@ from views.admin import (
     admin_users,
     admin_reset_password,
     admin_join_class,
+    remove_student_from_class,
 )
 
 bp = Blueprint("main", __name__)
@@ -53,6 +55,7 @@ bp.add_url_rule("/classes", "classes", classes)
 bp.add_url_rule("/classes/<class_id>", "class_detail", class_detail)
 bp.add_url_rule("/challenges", "student_challenges", student_challenges)
 bp.add_url_rule("/challenges/<challenge_id>", "student_challenge_detail", student_challenge_detail)
+bp.add_url_rule("/api/labs", "api_labs", api_labs)
 bp.add_url_rule("/leaderboard", "leaderboard", leaderboard)
 bp.add_url_rule("/api/leaderboard", "api_leaderboard", leaderboard)
 bp.add_url_rule("/user/join-class", "join_class", join_class, methods=["POST"])
@@ -77,6 +80,7 @@ bp.add_url_rule("/admin/classes/create", "create_class", create_class, methods=[
 bp.add_url_rule("/admin/classes/assign", "assign_challenge_to_class", assign_challenge_to_class, methods=["POST"])
 bp.add_url_rule("/admin/classes/delete/<class_id>", "delete_class", delete_class, methods=["POST"])
 bp.add_url_rule("/admin/classes/remove_challenge", "remove_challenge_from_class", remove_challenge_from_class, methods=["POST"])
+bp.add_url_rule("/admin/classes/remove-student", "remove_student_from_class", remove_student_from_class, methods=["POST"])
 bp.add_url_rule("/admin/classes/join", "admin_join_class", admin_join_class, methods=["POST"])
 bp.add_url_rule("/admin/update", "admin_update", admin_update, methods=["GET", "POST"])
 bp.add_url_rule("/admin/domain", "admin_domain", admin_domain)

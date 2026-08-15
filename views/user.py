@@ -285,6 +285,26 @@ def leaderboard():
 
 
 @login_required
+def api_labs():
+    data = load_data()
+    user = get_user_by_id(session["user_id"])
+    labs = []
+    for inst in data["instances"]:
+        if inst.get("user_id") == user["id"] and inst.get("status") == "running":
+            ch = next((c for c in data["challenges"] if c["id"] == inst.get("challenge_id")), None)
+            labs.append({
+                "instance_id": inst["id"],
+                "display_name": ch.get("display_name", inst["id"]) if ch else inst["id"],
+                "username": inst.get("username", ""),
+                "password": inst.get("password", ""),
+                "host": public_ip(),
+                "host_port": inst.get("host_port", ""),
+            })
+    from flask import jsonify
+    return jsonify({"labs": labs})
+
+
+@login_required
 def change_password():
     if request.method == "POST":
         old_password = request.form.get("old_password", "")

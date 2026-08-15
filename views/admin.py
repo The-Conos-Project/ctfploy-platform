@@ -419,3 +419,15 @@ def admin_join_class():
         classroom["member_ids"].append(admin_id)
         save_data(data)
     return redirect(url_for("main.admin_classes", success=f"Joined {classroom['name']}"))
+
+
+@admin_required
+def remove_student_from_class():
+    class_id = request.form.get("class_id", "").strip()
+    user_id = request.form.get("user_id", "").strip()
+    data = load_data()
+    classroom = next((c for c in data["classes"] if c["id"] == class_id), None)
+    if classroom and user_id in classroom.get("member_ids", []):
+        classroom["member_ids"] = [uid for uid in classroom["member_ids"] if uid != user_id]
+        save_data(data)
+    return redirect(url_for("main.admin_class_detail", class_id=class_id, success="Student removed"))
