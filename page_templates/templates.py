@@ -71,9 +71,9 @@ def build_log_page(challenge_id: str, class_id: Optional[str] = None):
 def admin_leaderboard_page(grouped_entries, toasts=None) -> str:
     sections = ''
     for class_id, entries in grouped_entries.items():
-        class_name = escape(entries[0]['class_name']) if entries else escape(class_id)
+        class_name = escape(entries[0].get('class_name', class_id)) if entries else escape(str(class_id))
         rows = ''.join(
-            f'''<li><div class="row"><strong>#{index} {escape(entry["username"])}</strong><div style="text-align:right;"><strong style="color:#ffd77a;">{entry["points"]} points</strong><div class="small-text">{entry["solved"]} challenge(s) solved</div></div></div></li>'''
+            f'''<li><div class="row"><strong>#{index} {escape(entry.get("username", "Unknown"))}</strong><div style="text-align:right;"><strong style="color:#ffd77a;">{entry.get("points", 0)} points</strong><div class="small-text">{entry.get("solved", 0)} challenge(s) solved</div></div></div></li>'''
             for index, entry in enumerate(entries, start=1)
         ) or '<li>No scores yet.</li>'
         sections += f'''

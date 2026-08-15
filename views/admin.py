@@ -393,32 +393,39 @@ def admin_users():
 
 @admin_required
 def admin_leaderboard():
-    data = load_data()
-    classrooms = data["classes"]
-    grouped = {}
-    for classroom in classrooms:
-        cid = classroom["id"]
-        assigned_challenge_ids = set(classroom.get("challenge_ids", []))
-        challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
-        scores = {}
-        for participant in data["users"]:
-            submitted_by_challenge = {}
-            for inst in data["instances"]:
-                if inst.get("user_id") == participant["id"] and inst.get("challenge_id") in assigned_challenge_ids:
-                    submitted_by_challenge.setdefault(inst["challenge_id"], set()).update(inst.get("submitted_flags", []))
-            points = 0
-            solved = 0
-            for challenge in challenges:
-                solved_flags = submitted_by_challenge.get(challenge["id"], set())
-                awarded = [spec for spec in flag_specs(challenge) if spec["flag"] in solved_flags]
-                points += sum(spec["points"] for spec in awarded)
-                if len(awarded) == len(flag_specs(challenge)) and awarded:
-                    solved += 1
-            if points:
-                scores[participant["id"]] = {"username": participant["username"], "points": points, "solved": solved, "user_id": participant["id"], "class_name": classroom["name"]}
-        ordered = sorted(scores.values(), key=lambda row: (-row["points"], -row["solved"], row["username"].lower()))
-        grouped[cid] = ordered
-    return admin_leaderboard_page(grouped, toasts=request_toast_messages())
+    try:
+        data = load_data()
+        classrooms = data.get("classes", [])
+        grouped = {}
+        for classroom in classrooms:
+            cid = classroom.get("id", "")
+            assigned_challenge_ids = set(classroom.get("challenge_ids", []))
+            challenges = [ch for ch in data.get("challenges", []) if ch.get("id") in assigned_challenge_ids]
+            scores = {}
+            for participant in data.get("users", []):
+                submitted_by_challenge = {}
+                for inst in data.get("instances", []):
+                    if inst.get("user_id") == participant.get("id") and inst.get("challenge_id") in assigned_challenge_ids:
+                        submitted_by_challenge.setdefault(inst.get("challenge_id"), set()).update(inst.get("submitted_flags", []))
+                points = 0
+                solved = 0
+                for challenge in challenges:
+                    try:
+                        specs = flag_specs(challenge)
+                    except Exception:
+                        specs = []
+                    solved_flags = submitted_by_challenge.get(challenge.get("id"), set())
+                    awarded = [spec for spec in specs if spec.get("flag") in solved_flags]
+                    points += sum(spec.get("points", 0) for spec in awarded)
+                    if specs and len(awarded) == len(specs) and awarded:
+                        solved += 1
+                if points:
+                    scores[participant.get("id")] = {"username": participant.get("username", "Unknown"), "points": points, "solved": solved, "user_id": participant.get("id"), "class_name": classroom.get("name", cid)}
+            ordered = sorted(scores.values(), key=lambda row: (-row["points"], -row["solved"], row["username"].lower()))
+            grouped[cid] = ordered
+        return admin_leaderboard_page(grouped, toasts=request_toast_messages())
+    except Exception as exc:
+        return admin_layout(f'<section class="card"><h1>Leaderboard</h1><p class="flash error">Failed to load leaderboard: {escape(str(exc))}</p></section>', active='home', toasts=request_toast_messages())
 
 
 @admin_required
