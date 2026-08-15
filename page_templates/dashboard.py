@@ -308,6 +308,9 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
     countdown_html = ""
     if expires_at:
         instance_id = inst.get("id", "") if inst else ""
+        extend_form = ""
+        if instance_id:
+            extend_form = f'<form method="post" action="/extend/{instance_id}" style="display:inline;" onsubmit="return confirm(\'Extend this lab by 1 hour?\')"><button type="submit" class="secondary" style="font-size:11px; padding:5px 10px; font-family:inherit;">+1h</button></form>'
         countdown_html = f'''
         <div class="card" style="margin-bottom:18px; border:1px solid #203154; background:#11192e;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
@@ -317,7 +320,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 </div>
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span id="lab-countdown" style="font-size:20px; font-weight:800; color:#ffd77a; font-variant-numeric:tabular-nums;">--:--</span>
-                    {f'<form method="post" action="/extend/{instance_id}" style="display:inline;" onsubmit="return confirm(\'Extend this lab by 1 hour?\')"><button type="submit" class="secondary" style="font-size:11px; padding:5px 10px; font-family:inherit;">+1h</button></form>' if instance_id else ''}
+                    {extend_form}
                 </div>
             </div>
         </div>
