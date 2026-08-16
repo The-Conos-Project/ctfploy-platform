@@ -226,15 +226,25 @@ def submit_flag(instance_id):
                 msg = "Already submitted"
             elif idx < len(specs) and _attempts_used(data, session["user_id"], challenge["id"], idx) >= specs[idx]["max_attempts"]:
                 msg = "No attempts remaining for this flag"
-            elif submitted != expected_flags[idx]:
-                _record_attempt(instance, idx)
-                save_data(data)
-                msg = "Incorrect"
             else:
-                instance.setdefault("submitted_flags", []).append(submitted)
-                save_data(data)
-                completed = len(set(instance["submitted_flags"]).intersection(expected_flags))
-                msg = f"Accepted! {completed}/{len(expected_flags)} flags found"
+                username = instance.get("username", "")
+                checker_path = f"/home/{username}/challenges/flag{idx + 1}/checker"
+                checker_valid = False
+                try:
+                    from docker_ops import run_checker
+                    checker_valid = run_checker(instance_id, checker_path, submitted)
+                except Exception:
+                    pass
+
+                if checker_valid or submitted == expected_flags[idx]:
+                    instance.setdefault("submitted_flags", []).append(submitted)
+                    save_data(data)
+                    completed = len(set(instance["submitted_flags"]).intersection(expected_flags))
+                    msg = f"Accepted! {completed}/{len(expected_flags)} flags found"
+                else:
+                    _record_attempt(instance, idx)
+                    save_data(data)
+                    msg = "Incorrect"
         except ValueError:
             msg = "Invalid flag index"
     else:

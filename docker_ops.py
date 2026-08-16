@@ -207,6 +207,24 @@ def _provision_ssh_user(container, username: str, password: str) -> None:
         raise RuntimeError(output or "could not create the generated SSH user")
 
 
+def run_checker(instance_id: str, checker_path: str, flag: str) -> bool:
+    """Run a checker script inside a challenge container and return whether the flag is valid."""
+    try:
+        docker_client = get_docker_client()
+        containers = docker_client.containers.list(filters={"label": f"ctfploy.instance_id={instance_id}"})
+        if not containers:
+            return False
+        container = containers[0]
+        result = container.exec_run(
+            cmd=[checker_path, flag],
+            user="root",
+            workdir="/",
+        )
+        return result.exit_code == 0
+    except Exception:
+        return False
+
+
 def create_container(challenge: dict, user_id: str) -> Tuple[Optional[dict], Optional[str]]:
     data = load_data()
     user_instances = [i for i in data["instances"] if i["user_id"] == user_id and i["status"] == "running"]
