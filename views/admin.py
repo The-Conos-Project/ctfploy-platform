@@ -67,13 +67,13 @@ def _normalize_flags(raw):
 
 def _normalize_credentials(raw):
     if not isinstance(raw, dict):
-        raise ValueError("credentials must be an object with username and password")
+        raw = {}
     username = str(raw.get("username", "")).strip()
     password = str(raw.get("password", ""))
-    if not re.fullmatch(r"[a-z_][a-z0-9_-]{2,31}", username):
-        raise ValueError("credentials.username must be 3-32 lowercase letters, numbers, underscores, or hyphens")
+    if not username or not re.fullmatch(r"[a-z_][a-z0-9_-]{2,31}", username):
+        username = "ctfuser"
     if not password or len(password) > 128:
-        raise ValueError("credentials.password must be between 1 and 128 characters")
+        password = uuid.uuid4().hex[:12]
     return {"username": username, "password": password}
 
 
