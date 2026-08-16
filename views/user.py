@@ -327,7 +327,6 @@ def api_labs():
                 "instance_id": inst["id"],
                 "display_name": ch.get("display_name", inst["id"]) if ch else inst["id"],
                 "username": inst.get("username", ""),
-                "password": inst.get("password", ""),
                 "host": public_ip(),
                 "host_port": inst.get("host_port", ""),
             })

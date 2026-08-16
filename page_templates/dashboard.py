@@ -185,8 +185,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
 
         if inst:
             connection = f'''
-            <button class="secondary" onclick="toggleModalDetails({idx}, this)" style="margin-top:16px; font-family:inherit; width:auto; display:inline-flex; align-items:center; gap:6px;">Show connection details</button>
-            <div id="modal-details-{idx}" style="display:none; margin-top:12px;">
+            <div style="margin-top:16px;">
                 <p class="small-text" style="margin-bottom:8px;">Connect to your lab environment via SSH:</p>
                 <div class="terminal-snippet">
                     <span class="terminal-prompt">$</span>
@@ -277,7 +276,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                 </div>
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span id="lab-countdown" style="font-size:20px; font-weight:800; color:#ffd77a; font-variant-numeric:tabular-nums;">--:--</span>
-                    {extend_form}
+                    <span id="extend-btn-container" style="display:none;">{extend_form}</span>
                 </div>
             </div>
         </div>
@@ -285,6 +284,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         (function() {{
             const target = {expires_at};
             const el = document.getElementById('lab-countdown');
+            const extendContainer = document.getElementById('extend-btn-container');
             const warned = new Set();
             function tick() {{
                 const now = Date.now();
@@ -297,6 +297,9 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
                     el.style.color = '#ffb3c1';
                 }}
                 const mins = Math.ceil(diff / 60);
+                if (mins <= 5 && extendContainer) {{
+                    extendContainer.style.display = 'inline';
+                }}
                 if ([1, 5, 10].includes(mins) && !warned.has(mins)) {{
                     warned.add(mins);
                     showToast(mins + ' minute' + (mins > 1 ? 's' : '') + ' remaining. Extend your lab by 1 hour?', 'info');
@@ -370,13 +373,6 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
             console.error(e);
         }}
         document.body.removeChild(ta);
-    }}
-    function toggleModalDetails(idx, btn) {{
-        const details = document.getElementById('modal-details-' + idx);
-        if (!details || !btn) return;
-        const isHidden = details.style.display === 'none' || details.style.display === '';
-        details.style.display = isHidden ? 'block' : 'none';
-        btn.textContent = isHidden ? 'Hide connection details' : 'Show connection details';
     }}
     </script>
     ''', active='users', toasts=toasts_list)
