@@ -37,39 +37,10 @@ def dashboard_page(user, user_classes, active_instances, toasts=None) -> str:
             class_name = escape(classroom['name'])
             cards.append(f'''
             <div class="card" style="margin-bottom:18px;">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
                     <h3 style="margin:0;">{class_name}</h3>
                     <a href="/leaderboard?class_id={class_id}" class="small-text">View leaderboard {icon("arrow-right")}</a>
                 </div>
-                <div id="leaderboard-{class_id}"><span class="small-text">Loading...</span></div>
-                <script>
-                (function() {{
-                    fetch('/api/leaderboard?class_id={class_id}')
-                        .then(r => r.json())
-                        .then(data => {{
-                            const el = document.getElementById('leaderboard-{class_id}');
-                            if (!el || !data.entries || !data.entries.length) {{
-                                el.innerHTML = '<span class=\\'small-text\\'>No scores yet.</span>';
-                                return;
-                            }}
-                            const myEntry = data.entries.find(e => e.user_id === '{user['id']}');
-                            const myRank = myEntry ? data.entries.indexOf(myEntry) + 1 : '-';
-                            const myPoints = myEntry ? myEntry.points : 0;
-                            const mySolved = myEntry ? myEntry.solved : 0;
-                            let html = '<ul class=\\'list\\'>';
-                            data.entries.slice(0, 5).forEach((entry, i) => {{
-                                const isMe = entry.user_id === '{user['id']}';
-                                html += '<li><div class=\\'row\\'><div><strong>' + (i + 1) + '. ' + escape(entry.username) + (isMe ? ' <span style=\\'color:#ffd77a;\\'>(you)</span>' : '') + '</strong><div class=\\'small-text\\'>' + entry.solved + ' challenge(s) solved</div></div><div style=\\'text-align:right;\\'><strong style=\\'color:#ffd77a;\\'>' + entry.points + ' points</strong></div></div></li>';
-                            }});
-                            html += '</ul>';
-                            html += '<div style=\\'margin-top:12px; padding-top:12px; border-top:1px solid #1f2d47;\\'><strong>Your rank: #' + myRank + ' · ' + myPoints + ' points · ' + mySolved + ' solved</strong></div>';
-                            el.innerHTML = html;
-                        }})
-                        .catch(() => {{
-                            document.getElementById('leaderboard-{class_id}').innerHTML = '<span class=\\'small-text\\'>Failed to load.</span>';
-                        }});
-                }})();
-                </script>
             </div>
             ''')
         leaderboard_html = '<h1>Leaderboard</h1><p class="muted" style="margin-bottom: 18px;">Your rankings across joined classes.</p>' + ''.join(cards)

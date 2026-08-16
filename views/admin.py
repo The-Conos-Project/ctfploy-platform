@@ -425,7 +425,7 @@ def admin_leaderboard():
             grouped[cid] = ordered
         return admin_leaderboard_page(grouped, toasts=request_toast_messages())
     except Exception as exc:
-        return admin_layout(f'<section class="card"><h1>Leaderboard</h1><p class="flash error">Failed to load leaderboard: {escape(str(exc))}</p></section>', active='home', toasts=request_toast_messages())
+        return admin_layout(f'<section class="card"><h1>Leaderboard</h1><p class="flash error">Failed to load leaderboard: {escape(str(exc))}</p></section>', active='leaderboard', toasts=request_toast_messages())
 
 
 @admin_required

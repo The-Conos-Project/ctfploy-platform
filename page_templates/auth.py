@@ -63,20 +63,20 @@ def register_page(error: bool = False) -> str:
         <div class="centered-container">
             <div class="card">
                 <h2>Create a new account</h2>
-                <p>Register and start solving challenges.</p>
+                <p>Sign up and start solving challenges.</p>
                 {''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in toasts)}
                 <form method="post">
                     <label>Username</label>
                     <input name="username" placeholder="Username" required autofocus>
                     <label>Password</label>
                     <input type="password" name="password" placeholder="Password" required>
-                    <button type="submit">Register</button>
+                    <button type="submit">Sign up</button>
                 </form>
                 <p class="small-text">Already have an account? <a href="/sign-in">Sign in</a>.</p>
             </div>
         </div>
     </div>
-    """, title="Register - CTFploy")
+    """, title="Sign up - CTFploy")
 
 
 def change_password_page(toasts=None) -> str:
@@ -110,13 +110,8 @@ def reset_password_request_page(error: bool = False) -> str:
         <div class="centered-container">
             <div class="card">
                 <h2>Reset Password</h2>
-                <p>Enter your username to request a password reset.</p>
+                <p>Only an administrator can reset your password. Please request a reset from your instructor.</p>
                 {''.join(f'<div class="flash {kind}">{escape(message)}</div>' for kind, message in toasts)}
-                <form method="post">
-                    <label>Username</label>
-                    <input name="username" placeholder="Username" required autofocus>
-                    <button type="submit">Request Reset</button>
-                </form>
                 <p class="small-text"><a href="/sign-in">Back to sign in</a></p>
             </div>
         </div>
