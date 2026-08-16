@@ -382,20 +382,18 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
     ''', active='users', toasts=toasts_list)
 
 
-def leaderboard_page(grouped_entries) -> str:
+def leaderboard_page(grouped_entries, class_names=None) -> str:
+    class_names = class_names or {}
     sections = ''
     for class_id, entries in grouped_entries.items():
-        class_name = escape(entries[0]['class_name']) if entries else escape(class_id)
+        class_name = escape(entries[0]['class_name']) if entries else escape(class_names.get(class_id, class_id))
         rows = ''.join(
             f'''<li><div class="row"><strong>#{index} {escape(entry["username"])}</strong><div style="text-align:right;"><strong style="color:#ffd77a;">{entry["points"]} points</strong><div class="small-text">{entry["solved"]} challenge(s) solved</div></div></div></li>'''
             for index, entry in enumerate(entries, start=1)
         ) or '<li>No scores yet.</li>'
         sections += f'''
         <section class="card" style="margin-bottom:18px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
-                <h3 style="margin:0;">{class_name}</h3>
-                <button class="copy-class" onclick="copyText(this, '/leaderboard?class_id={class_id}')">Copy link {icon("copy")}</button>
-            </div>
+            <h3 style="margin:0;">{class_name}</h3>
             <ul class="list">{rows}</ul>
         </section>
         '''
@@ -407,19 +405,4 @@ def leaderboard_page(grouped_entries) -> str:
     <h1>Leaderboard</h1>
     <p class="muted">Rankings by class. Sorted by points, then challenges solved.</p>
     {sections}
-    <script>
-    function copyText(btn, text) {{
-        navigator.clipboard.writeText(text).then(() => {{
-            const old = btn.textContent;
-            btn.textContent = 'Copied!';
-            btn.style.background = '#0f382a';
-            btn.style.color = '#7bf5c3';
-            setTimeout(() => {{
-                btn.textContent = old;
-                btn.style.background = '#16223b';
-                btn.style.color = '#aebddd';
-            }}, 1500);
-        }}).catch(() => {{}});
-    }}
-    </script>
     ''', active='leaderboard')

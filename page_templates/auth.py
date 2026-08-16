@@ -23,7 +23,7 @@ def sign_in_page(error: bool = False, show_reset: bool = False) -> str:
                     <button type="submit">Sign In</button>
                 </form>
                 {reset_link}
-                <p class="small-text">No account yet? <a href="/register">Create one here</a>.</p>
+                <p class="small-text">No account yet? <a href="/sign-up">Sign up</a>.</p>
             </div>
         </div>
     </div>

@@ -27,6 +27,7 @@ from views.admin import (
     build_log_view,
     build_log_stream,
     delete_challenge,
+    update_challenge,
     admin_class_detail,
     admin_update,
     admin_domain,
@@ -49,7 +50,7 @@ bp = Blueprint("main", __name__)
 
 bp.add_url_rule("/", "index", index)
 bp.add_url_rule("/sign-in", "sign_in", sign_in, methods=["GET", "POST"])
-bp.add_url_rule("/register", "register", register, methods=["GET", "POST"])
+bp.add_url_rule("/sign-up", "register", register, methods=["GET", "POST"])
 bp.add_url_rule("/logout", "logout", logout)
 
 bp.add_url_rule("/dashboard", "dashboard", dashboard)
@@ -77,6 +78,7 @@ bp.add_url_rule("/admin/import-url", "import_url", import_url, methods=["POST"])
 bp.add_url_rule("/admin/build_log/<challenge_id>", "build_log_view", build_log_view)
 bp.add_url_rule("/admin/build_log_stream/<challenge_id>", "build_log_stream", build_log_stream)
 bp.add_url_rule("/admin/delete_challenge/<challenge_id>", "delete_challenge", delete_challenge)
+bp.add_url_rule("/admin/update_challenge/<challenge_id>", "update_challenge", update_challenge, methods=["POST"])
 bp.add_url_rule("/admin/classes", "admin_classes", admin_classes)
 bp.add_url_rule("/admin/classes/<class_id>", "admin_class_detail", admin_class_detail)
 bp.add_url_rule("/admin/classes/create", "create_class", create_class, methods=["POST"])

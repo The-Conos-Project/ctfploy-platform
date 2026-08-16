@@ -77,6 +77,121 @@ def _normalize_credentials(raw):
     return {"username": username, "password": password}
 
 
+def _build_challenge_from_url(url, class_id=None):
+    data = load_data()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz") as tmp:
+        filepath = tmp.name
+        req = urllib.request.Request(url, headers={"User-Agent": "CTFploy/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as response:
+            total = 0
+            while chunk := response.read(1024 * 1024):
+                total += len(chunk)
+                if total > 100 * 1024 * 1024:
+                    raise ValueError("Archive is larger than the 100 MB limit")
+                tmp.write(chunk)
+
+    build_dir = tempfile.mkdtemp(prefix="ctf_build_")
+    with tarfile.open(filepath, "r:gz") as tar:
+        members = tar.getmembers()
+        if len(members) > 5_000:
+            raise ValueError("Archive contains too many files")
+        for member in members:
+            if member.name in {"", ".", "./"}:
+                continue
+            destination = os.path.realpath(os.path.join(build_dir, member.name))
+            build_root = os.path.realpath(build_dir)
+            if destination != build_root and not destination.startswith(build_root + os.sep):
+                raise ValueError("Archive contains an unsafe file path")
+            if member.issym() or member.islnk() or member.isdev():
+                raise ValueError("Archive links and device files are not allowed")
+        tar.extractall(build_dir, members=members, filter="data")
+    os.unlink(filepath)
+
+    if not os.path.exists(os.path.join(build_dir, "Dockerfile")):
+        dockerfile_dirs = [
+            root
+            for root, _, files in os.walk(build_dir)
+            if "Dockerfile" in files
+        ]
+        if len(dockerfile_dirs) == 0:
+            raise ValueError("Archive must include a Dockerfile")
+        if len(dockerfile_dirs) > 1:
+            raise ValueError("Archive contains multiple Dockerfiles; use a single challenge package.")
+        build_dir = dockerfile_dirs[0]
+
+    metadata_path = os.path.join(build_dir, "ctfploy.json")
+    meta = {}
+    if os.path.exists(metadata_path):
+        with open(metadata_path) as f:
+            meta = json.load(f)
+
+    name = str(meta.get("name", os.path.basename(url).replace(".tar.gz", "").replace(" ", "-").lower()))
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", name):
+        raise ValueError("Challenge name must use lowercase letters, numbers, dots, underscores, or hyphens")
+    display_name = meta.get("display_name", name.replace("-", " ").title())
+    description = meta.get("description", "")
+    if not isinstance(description, str):
+        raise ValueError("description must be a string")
+    credentials = _normalize_credentials(meta.get("credentials"))
+
+    challenges_meta = meta.get("challenges", [])
+    if challenges_meta:
+        challenge_ids = []
+        for ch_meta in challenges_meta:
+            ch_name = str(ch_meta.get("name", ""))
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", ch_name):
+                raise ValueError(f"Challenge name must use lowercase letters, numbers, dots, underscores, or hyphens: {ch_name}")
+            ch_display_name = ch_meta.get("display_name", ch_name.replace("-", " ").title())
+            ch_description = ch_meta.get("description", "")
+            if not isinstance(ch_description, str):
+                raise ValueError("each challenge description must be a string")
+            ch_flags = ch_meta.get("flags")
+            normalized_flags = _normalize_flags(ch_flags)
+
+            challenge_id = str(uuid.uuid4())[:8]
+            challenge_ids.append(challenge_id)
+            challenge = {
+                "id": challenge_id,
+                "name": ch_name,
+                "display_name": ch_display_name,
+                "image_tag": f"ctf-{name}",
+                "source_url": url,
+                "description": ch_description,
+                "flags": normalized_flags,
+                "credentials": credentials,
+                "build_status": "building",
+            }
+            data["challenges"].append(challenge)
+    else:
+        flags = meta.get("flags")
+        normalized_flags = _normalize_flags(flags)
+
+        image_tag = f"ctf-{name}"
+        challenge_id = str(uuid.uuid4())[:8]
+        challenge_ids = [challenge_id]
+        challenge = {
+            "id": challenge_id,
+            "name": name,
+            "display_name": display_name,
+            "image_tag": image_tag,
+            "source_url": url,
+            "description": description,
+            "flags": normalized_flags,
+            "credentials": credentials,
+            "build_status": "building",
+        }
+        data["challenges"].append(challenge)
+
+    save_data(data)
+    os.makedirs(BUILD_LOGS_STORE, exist_ok=True)
+    log_path = build_log_path(f"ctf-{name}")
+    with open(log_path, "w", encoding="utf-8") as log:
+        log.write("Build queued...\n")
+    image_tag = f"ctf-{name}"
+    threading.Thread(target=build_image_thread, args=(name, build_dir, image_tag, challenge_ids, class_id), daemon=True).start()
+    return challenge_ids
+
+
 @admin_required
 def admin_dashboard():
     data = load_data()
@@ -97,124 +212,17 @@ def import_url():
         return redirect(url_for("main.admin_challenges", error="Use an http:// or https:// archive URL"))
     try:
         data = load_data()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz") as tmp:
-            filepath = tmp.name
-            req = urllib.request.Request(url, headers={"User-Agent": "CTFploy/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as response:
-                total = 0
-                while chunk := response.read(1024 * 1024):
-                    total += len(chunk)
-                    if total > 100 * 1024 * 1024:
-                        raise ValueError("Archive is larger than the 100 MB limit")
-                    tmp.write(chunk)
-
-        build_dir = tempfile.mkdtemp(prefix="ctf_build_")
-        with tarfile.open(filepath, "r:gz") as tar:
-            members = tar.getmembers()
-            if len(members) > 5_000:
-                raise ValueError("Archive contains too many files")
-            for member in members:
-                # Archives created with tar commonly contain a root `.` entry.
-                # It resolves to build_dir itself and is safe to extract.
-                if member.name in {"", ".", "./"}:
-                    continue
-                destination = os.path.realpath(os.path.join(build_dir, member.name))
-                build_root = os.path.realpath(build_dir)
-                if destination != build_root and not destination.startswith(build_root + os.sep):
-                    raise ValueError("Archive contains an unsafe file path")
-                if member.issym() or member.islnk() or member.isdev():
-                    raise ValueError("Archive links and device files are not allowed")
-            tar.extractall(build_dir, members=members, filter="data")
-        os.unlink(filepath)
-
-        if not os.path.exists(os.path.join(build_dir, "Dockerfile")):
-            dockerfile_dirs = [
-                root
-                for root, _, files in os.walk(build_dir)
-                if "Dockerfile" in files
-            ]
-            if len(dockerfile_dirs) == 0:
-                return redirect(url_for("main.admin_challenges", error="Archive must include a Dockerfile"))
-            if len(dockerfile_dirs) > 1:
-                return redirect(url_for("main.admin_challenges", error="Archive contains multiple Dockerfiles; use a single challenge package."))
-            build_dir = dockerfile_dirs[0]
-
-        metadata_path = os.path.join(build_dir, "ctfploy.json")
-        meta = {}
-        if os.path.exists(metadata_path):
-            with open(metadata_path) as f:
-                meta = json.load(f)
-
-        name = str(meta.get("name", os.path.basename(url).replace(".tar.gz", "").replace(" ", "-").lower()))
-        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", name):
-            raise ValueError("Challenge name must use lowercase letters, numbers, dots, underscores, or hyphens")
-        display_name = meta.get("display_name", name.replace("-", " ").title())
-        description = meta.get("description", "")
-        if not isinstance(description, str):
-            raise ValueError("description must be a string")
-        credentials = _normalize_credentials(meta.get("credentials"))
-
-        challenges_meta = meta.get("challenges", [])
-        if challenges_meta:
-            challenge_ids = []
-            for ch_meta in challenges_meta:
-                ch_name = str(ch_meta.get("name", ""))
-                if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", ch_name):
-                    raise ValueError(f"Challenge name must use lowercase letters, numbers, dots, underscores, or hyphens: {ch_name}")
-                ch_display_name = ch_meta.get("display_name", ch_name.replace("-", " ").title())
-                ch_description = ch_meta.get("description", "")
-                if not isinstance(ch_description, str):
-                    raise ValueError("each challenge description must be a string")
-                ch_flags = ch_meta.get("flags")
-                normalized_flags = _normalize_flags(ch_flags)
-
-                challenge_id = str(uuid.uuid4())[:8]
-                challenge_ids.append(challenge_id)
-                challenge = {
-                    "id": challenge_id,
-                    "name": ch_name,
-                    "display_name": ch_display_name,
-                    "image_tag": f"ctf-{name}",
-                    "description": ch_description,
-                    "flags": normalized_flags,
-                    "credentials": credentials,
-                    "build_status": "building",
-                }
-                data["challenges"].append(challenge)
-        else:
-            flags = meta.get("flags")
-            normalized_flags = _normalize_flags(flags)
-
-            image_tag = f"ctf-{name}"
-            challenge_id = str(uuid.uuid4())[:8]
-            challenge_ids = [challenge_id]
-            challenge = {
-                "id": challenge_id,
-                "name": name,
-                "display_name": display_name,
-                "image_tag": image_tag,
-                "description": description,
-                "flags": normalized_flags,
-                "credentials": credentials,
-                "build_status": "building",
-            }
-            data["challenges"].append(challenge)
-
-        save_data(data)
-        os.makedirs(BUILD_LOGS_STORE, exist_ok=True)
-        log_path = build_log_path(f"ctf-{name}")
-        with open(log_path, "w", encoding="utf-8") as log:
-            log.write("Build queued...\n")
-        image_tag = f"ctf-{name}"
-        threading.Thread(target=build_image_thread, args=(name, build_dir, image_tag, challenge_ids, class_id), daemon=True).start()
+        name = os.path.basename(url).replace(".tar.gz", "").replace(" ", "-").lower()
+        existing = next((ch for ch in data["challenges"] if ch.get("name") == name or ch.get("image_tag") == f"ctf-{name}"), None)
+        if existing and existing.get("build_status") in ("building", "ready"):
+            if class_id:
+                return redirect(url_for("main.admin_class_detail", class_id=class_id, error=f"Challenge '{name}' is already built. Use Update instead of importing again."))
+            return redirect(url_for("main.admin_challenges", error=f"Challenge '{name}' is already built. Use Update instead of importing again."))
+        challenge_ids = _build_challenge_from_url(url, class_id)
         if class_id:
             return redirect(url_for("main.build_log_view", challenge_id=challenge_ids[0], class_id=class_id))
         return redirect(url_for("main.build_log_view", challenge_id=challenge_ids[0]))
     except Exception as e:
-        if 'filepath' in locals() and os.path.exists(filepath):
-            os.unlink(filepath)
-        if 'build_dir' in locals() and os.path.isdir(build_dir):
-            shutil.rmtree(build_dir, ignore_errors=True)
         class_id_err = request.form.get("class_id", "").strip()
         if class_id_err:
             return redirect(url_for("main.admin_class_detail", class_id=class_id_err, error=f"Build failed: {str(e)}"))
@@ -268,6 +276,24 @@ def delete_challenge(challenge_id: str):
     data["challenges"] = [c for c in data["challenges"] if c["id"] != challenge_id]
     save_data(data)
     return redirect(url_for("main.admin_challenges"))
+
+
+@admin_required
+def update_challenge(challenge_id: str):
+    data = load_data()
+    challenge = next((c for c in data["challenges"] if c["id"] == challenge_id), None)
+    if not challenge:
+        return redirect(url_for("main.admin_challenges", error="Challenge not found"))
+    source_url = challenge.get("source_url")
+    if not source_url:
+        return redirect(url_for("main.admin_challenges", error="No source URL stored for this challenge"))
+    try:
+        data["challenges"] = [c for c in data["challenges"] if c["id"] != challenge_id]
+        save_data(data)
+        challenge_ids = _build_challenge_from_url(source_url)
+        return redirect(url_for("main.build_log_view", challenge_id=challenge_ids[0]))
+    except Exception as e:
+        return redirect(url_for("main.admin_challenges", error=f"Update failed: {str(e)}"))
 
 
 @admin_required

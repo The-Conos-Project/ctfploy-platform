@@ -4,11 +4,12 @@ from html import escape
 def icon(name: str) -> str:
     paths = {
         "home": '<path d="m3 12 9-9 9 9"/><path d="M5 10v10h14V10"/>',
-        "book": '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
         "users": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+        "classes": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
         "boxes": '<path d="m21 16-9 5-9-5V6l9-5 9 5Z"/><path d="M3.3 7 8.7 12 8.7 7M12 22V12"/>',
+        "cube": '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>',
         "key": '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l1 1M18.5 4.5l1 1"/>',
-        "settings": '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V20h-3v-.08a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.88.34l-.06-.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.12 15a1.7 1.7 0 0 0-1.55-1H5.5v-3h.08a1.7 1.7 0 0 0 1.55-1A1.7 1.7 0 0 0 6.78 8.1l-.06-.06 2.1-2.1.06.06A1.7 1.7 0 0 0 10.76 6.34a1.7 1.7 0 0 0 1-1.55V4.7h3v.08a1.7 1.7 0 0 0 1 1.55A1.7 1.7 0 0 0 17.64 6l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.55 1h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z"/>',
+        "settings": '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V20h-3v-.08a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.88.34l-.06-.06-2.1-2.1.06.06A1.7 1.7 0 0 0 7.12 15a1.7 1.7 0 0 0-1.55-1H5.5v-3h.08a1.7 1.7 0 0 0 1.55-1A1.7 1.7 0 0 0 6.78 8.1l-.06-.06 2.1-2.1.06.06A1.7 1.7 0 0 0 10.76 6.34a1.7 1.7 0 0 0 1-1.55V4.7h3v.08a1.7 1.7 0 0 0 1 1.55A1.7 1.7 0 0 0 17.64 6l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.55 1h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z"/>',
         "log-out": '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M21 19V5a2 2 0 0 0-2-2h-6"/>',
         "terminal": '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
         "trophy": '<path d="M6 9H4a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2"/><path d="M12 15V3"/><path d="M6 15a6 6 0 0 0 12 0"/>',
@@ -65,10 +66,8 @@ function toggleLabsMenu(){
     const open=m.classList.contains('open');
     if(open){
         m.classList.remove('open');
-        b.innerHTML='__CIRCLE_X__';
     }else{
         m.classList.add('open');
-        b.innerHTML='__X__';
         fetch('/api/labs').then(r=>r.json()).then(data=>{
             const el=document.getElementById('labs-list');
             if(!el)return;
@@ -129,8 +128,8 @@ function terminateLab(id, name){
     }
 }
 """
-    labs_menu_js = labs_menu_js.replace("__CIRCLE_X__", icon("circle-x")).replace("__X__", icon("x")).replace("__X_ICON__", icon("x"))
-    labs_fab = '<button class="labs-fab" id="labs-fab" onclick="toggleLabsMenu()" title="Active Labs">' + icon("circle-x") + '</button><div class="labs-menu" id="labs-menu"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;"><strong style="font-size:14px;">Active Labs</strong><button class="modal-close" onclick="toggleLabsMenu()">' + icon("circle-x") + '</button></div><div id="labs-list"><span class="small-text">Loading...</span></div></div><script>' + labs_menu_js + '</script>' if sidebar else ''
+    labs_menu_js = labs_menu_js.replace("__X_ICON__", icon("x"))
+    labs_fab = '<button class="labs-fab" id="labs-fab" onclick="toggleLabsMenu()" title="Active Labs">' + icon("terminal") + '</button><div class="labs-menu" id="labs-menu"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;"><strong style="font-size:14px;">Active Labs</strong><button class="modal-close" onclick="toggleLabsMenu()">' + icon("circle-x") + '</button></div><div id="labs-list"><span class="small-text">Loading...</span></div></div><script>' + labs_menu_js + '</script>' if sidebar else ''
     return f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"><title>{escape(title)}</title><style>{STYLE}</style></head><body>{toast_container}{body}{script}{toast_script}{labs_fab}</body></html>'
 
 

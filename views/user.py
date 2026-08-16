@@ -268,8 +268,10 @@ def leaderboard():
         classrooms = [c for c in data["classes"] if user["id"] in c.get("member_ids", [])]
 
     grouped = {}
+    class_names = {}
     for classroom in classrooms:
         cid = classroom["id"]
+        class_names[cid] = classroom["name"]
         assigned_challenge_ids = set(classroom.get("challenge_ids", []))
         challenges = [ch for ch in data["challenges"] if ch["id"] in assigned_challenge_ids]
 
@@ -301,8 +303,8 @@ def leaderboard():
         return jsonify({"entries": all_entries})
 
     if class_id and class_id in grouped:
-        return leaderboard_page({class_id: grouped[class_id]})
-    return leaderboard_page(grouped)
+        return leaderboard_page({class_id: grouped[class_id]}, class_names)
+    return leaderboard_page(grouped, class_names)
 
 
 @login_required
