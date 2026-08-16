@@ -92,19 +92,6 @@ function toggleLabsMenu(){
         });
     }
 }
-function copyText(btn, text){
-    navigator.clipboard.writeText(text).then(()=>{
-        const old=btn.textContent;
-        btn.textContent='Copied!';
-        btn.style.background='#0f382a';
-        btn.style.color='#7bf5c3';
-        setTimeout(()=>{
-            btn.textContent=old;
-            btn.style.background='#16223b';
-            btn.style.color='#aebddd';
-        },1500);
-    }).catch(()=>{});
-}
 function terminateLab(id, name){
     if(confirm('End '+name+'?')){
         const f=document.createElement('form');
