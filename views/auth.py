@@ -1,13 +1,28 @@
 import uuid
-from flask import redirect, request, session, url_for
+from flask import make_response, redirect, request, session, url_for
 from config import ADMIN_PASSWORD
-from data_store import get_user, get_user_by_id, load_data, save_data, hash_password, verify_password
+from data_store import get_user, load_data, save_data, hash_password, verify_password
+from i18n import COOKIE_NAME, set_lang
 from page_templates.auth import register_page, sign_in_page, admin_sign_in_page
 from page_templates.home import landing_page
 
 
 def index():
     return landing_page()
+
+
+def set_language(lang_code):
+    if lang_code not in ("uz", "en"):
+        lang_code = "uz"
+    set_lang(lang_code)
+    target = request.referrer or url_for("main.index")
+    response = make_response(redirect(target))
+    response.set_cookie(COOKIE_NAME, lang_code, max_age=365 * 24 * 3600, samesite="Lax")
+    return response
+
+
+def legacy_register_redirect():
+    return redirect(url_for("main.register"), code=301)
 
 
 def sign_in():
@@ -33,7 +48,7 @@ def register():
         new_user = {
             "id": str(uuid.uuid4())[:8],
             "username": username,
-            "password_hash": hash_password(password)
+            "password_hash": hash_password(password),
         }
         data["users"].append(new_user)
         save_data(data)

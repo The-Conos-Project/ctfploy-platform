@@ -22,6 +22,14 @@ app.config.update(
 )
 app.register_blueprint(bp)
 
+
+@app.errorhandler(404)
+def not_found(_error):
+    from page_templates.home import not_found_page
+
+    return not_found_page(), 404
+
+
 _init_db()
 os.makedirs(CHALLENGES_STORE, exist_ok=True)
 try:

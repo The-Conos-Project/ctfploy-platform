@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import redirect, request, session, url_for
+from flask import flash, get_flashed_messages, redirect, request, session, url_for
 
 
 def login_required(f):
@@ -20,23 +20,18 @@ def admin_required(f):
     return decorated
 
 
-def request_flash_messages():
-    flashes = []
-    success = request.args.get("success")
-    error = request.args.get("error")
-    if success:
-        flashes.append(("success", success))
-    if error:
-        flashes.append(("error", error))
-    return flashes
+def toast_success(message: str) -> None:
+    flash(message, "success")
+
+
+def toast_error(message: str) -> None:
+    flash(message, "error")
 
 
 def request_toast_messages():
-    toasts = []
-    success = request.args.get("success")
-    error = request.args.get("error")
-    if success:
-        toasts.append(("success", success))
-    if error:
-        toasts.append(("error", error))
-    return toasts
+    """Session flashes — shown once, then cleared (no URL query params)."""
+    return list(get_flashed_messages(with_categories=True))
+
+
+# Back-compat alias
+request_flash_messages = request_toast_messages

@@ -24,7 +24,7 @@ from page_templates.templates import (
     admin_users_page,
     admin_leaderboard_page,
 )
-from views.utils import admin_required, request_toast_messages
+from views.utils import admin_required, request_toast_messages, toast_success, toast_error
 
 
 def _normalize_flag(item):
@@ -208,15 +208,18 @@ def import_url():
     url = request.form.get("url", "").strip()
     class_id = request.form.get("class_id", "").strip() or None
     if not url.startswith(("https://", "http://")):
-        return redirect(url_for("main.admin_challenges", error="Use an http:// or https:// archive URL"))
+        toast_error("Use an http:// or https:// archive URL")
+        return redirect(url_for("main.admin_challenges"))
     try:
         data = load_data()
         name = os.path.basename(url).replace(".tar.gz", "").replace(" ", "-").lower()
         existing = next((ch for ch in data["challenges"] if ch.get("name") == name or ch.get("image_tag") == f"ctf-{name}"), None)
         if existing and existing.get("build_status") in ("building", "ready"):
             if class_id:
-                return redirect(url_for("main.admin_class_detail", class_id=class_id, error=f"Challenge '{name}' is already built. Use Update instead of importing again."))
-            return redirect(url_for("main.admin_challenges", error=f"Challenge '{name}' is already built. Use Update instead of importing again."))
+                toast_error(f"Challenge '{name}' is already built. Use Update instead of importing again.")
+                return redirect(url_for("main.admin_class_detail", class_id=class_id))
+            toast_error(f"Challenge '{name}' is already built. Use Update instead of importing again.")
+            return redirect(url_for("main.admin_challenges"))
         challenge_ids = _build_challenge_from_url(url, class_id)
         if class_id:
             return redirect(url_for("main.build_log_view", challenge_id=challenge_ids[0], class_id=class_id))
@@ -224,8 +227,10 @@ def import_url():
     except Exception as e:
         class_id_err = request.form.get("class_id", "").strip()
         if class_id_err:
-            return redirect(url_for("main.admin_class_detail", class_id=class_id_err, error=f"Build failed: {str(e)}"))
-        return redirect(url_for("main.admin_challenges", error=f"Build failed: {str(e)}"))
+            toast_error(f"Build failed: {str(e)}")
+            return redirect(url_for("main.admin_class_detail", class_id=class_id_err))
+        toast_error(f"Build failed: {str(e)}")
+        return redirect(url_for("main.admin_challenges"))
 
 
 @admin_required
@@ -282,17 +287,20 @@ def update_challenge(challenge_id: str):
     data = load_data()
     challenge = next((c for c in data["challenges"] if c["id"] == challenge_id), None)
     if not challenge:
-        return redirect(url_for("main.admin_challenges", error="Challenge not found"))
+        toast_error("Challenge not found")
+        return redirect(url_for("main.admin_challenges"))
     source_url = challenge.get("source_url")
     if not source_url:
-        return redirect(url_for("main.admin_challenges", error="No source URL stored for this challenge"))
+        toast_error("No source URL stored for this challenge")
+        return redirect(url_for("main.admin_challenges"))
     try:
         data["challenges"] = [c for c in data["challenges"] if c["id"] != challenge_id]
         save_data(data)
         challenge_ids = _build_challenge_from_url(source_url)
         return redirect(url_for("main.build_log_view", challenge_id=challenge_ids[0]))
     except Exception as e:
-        return redirect(url_for("main.admin_challenges", error=f"Update failed: {str(e)}"))
+        toast_error(f"Update failed: {str(e)}")
+        return redirect(url_for("main.admin_challenges"))
 
 
 @admin_required
@@ -306,7 +314,8 @@ def admin_class_detail(class_id: str):
     data = load_data()
     classroom = next((c for c in data["classes"] if c["id"] == class_id), None)
     if not classroom:
-        return redirect(url_for("main.admin_classes", error="Class not found"))
+        toast_error("Class not found")
+        return redirect(url_for("main.admin_classes"))
     return admin_class_detail_page(classroom, data["challenges"], data["users"], toasts=request_toast_messages())
 
 
@@ -314,7 +323,8 @@ def admin_class_detail(class_id: str):
 def create_class():
     name = request.form.get("name", "").strip()
     if not name or len(name) > 80:
-        return redirect(url_for("main.admin_classes", error="Enter a class name up to 80 characters"))
+        toast_error("Enter a class name up to 80 characters")
+        return redirect(url_for("main.admin_classes"))
     data = load_data()
     data["classes"].append({
         "id": uuid.uuid4().hex[:8], "name": name,
@@ -322,7 +332,8 @@ def create_class():
         "challenge_ids": [], "member_ids": [], "created_at": datetime.now().isoformat(),
     })
     save_data(data)
-    return redirect(url_for("main.admin_classes", success="Class created"))
+    toast_success("Class created")
+    return redirect(url_for("main.admin_classes"))
 
 
 @admin_required
@@ -332,11 +343,13 @@ def assign_challenge_to_class():
     classroom = next((c for c in data["classes"] if c["id"] == class_id), None)
     challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "ready"), None)
     if not classroom or not challenge:
-        return redirect(url_for("main.admin_classes", error="Choose a valid ready challenge and class"))
+        toast_error("Choose a valid ready challenge and class")
+        return redirect(url_for("main.admin_classes"))
     if challenge_id not in classroom["challenge_ids"]:
         classroom["challenge_ids"].append(challenge_id)
         save_data(data)
-    return redirect(url_for("main.admin_class_detail", class_id=class_id, success="Challenge assigned"))
+    toast_success("Challenge assigned")
+    return redirect(url_for("main.admin_class_detail", class_id=class_id))
 
 
 @admin_required
@@ -344,7 +357,8 @@ def delete_class(class_id):
     data = load_data()
     data["classes"] = [c for c in data["classes"] if c["id"] != class_id]
     save_data(data)
-    return redirect(url_for("main.admin_classes", success="Class deleted"))
+    toast_success("Class deleted")
+    return redirect(url_for("main.admin_classes"))
 
 
 @admin_required
@@ -356,7 +370,8 @@ def remove_challenge_from_class():
     if classroom and challenge_id in classroom.get("challenge_ids", []):
         classroom["challenge_ids"] = [cid for cid in classroom["challenge_ids"] if cid != challenge_id]
         save_data(data)
-    return redirect(url_for("main.admin_class_detail", class_id=class_id, success="Challenge removed"))
+    toast_success("Challenge removed")
+    return redirect(url_for("main.admin_class_detail", class_id=class_id))
 
 
 @admin_required
@@ -364,14 +379,13 @@ def admin_update():
     if request.method == "POST":
         try:
             schedule_platform_update()
-            return redirect(
-                url_for(
-                    "main.admin_settings",
-                    success="Update started. The platform will restart in a few seconds — refresh this page shortly.",
-                )
+            toast_success(
+                "Update started. The platform will restart in a few seconds — refresh this page shortly."
             )
+            return redirect(url_for("main.admin_settings"))
         except Exception as exc:
-            return redirect(url_for("main.admin_settings", error=f"Update failed: {exc}"))
+            toast_error(f"Update failed: {exc}")
+            return redirect(url_for("main.admin_settings"))
 
     return redirect(url_for("main.admin_settings"))
 
@@ -386,9 +400,11 @@ def save_domain():
     try:
         domain = prepare_domain(request.form.get("domain", ""))
         set_setting("custom_domain", domain)
-        return redirect(url_for("main.admin_settings", success="DNS validation endpoint is ready. Create the A record, then issue the certificate."))
+        toast_success("DNS validation endpoint is ready. Create the A record, then issue the certificate.")
+        return redirect(url_for("main.admin_settings"))
     except Exception as exc:
-        return redirect(url_for("main.admin_settings", error=str(exc)))
+        toast_error(str(exc))
+        return redirect(url_for("main.admin_settings"))
 
 
 @admin_required
@@ -396,9 +412,11 @@ def create_domain_certificate():
     try:
         domain = get_setting("custom_domain", "")
         issue_certificate(domain, request.form.get("email", ""))
-        return redirect(url_for("main.admin_settings", success="Certificate issued and HTTPS enabled."))
+        toast_success("Certificate issued and HTTPS enabled.")
+        return redirect(url_for("main.admin_settings"))
     except Exception as exc:
-        return redirect(url_for("main.admin_settings", error=f"Certificate request failed: {exc}"))
+        toast_error(f"Certificate request failed: {exc}")
+        return redirect(url_for("main.admin_settings"))
 
 
 @admin_required
@@ -454,16 +472,20 @@ def admin_reset_password():
     user_id = request.form.get("user_id", "").strip()
     new_password = request.form.get("new_password", "").strip()
     if not user_id or not new_password:
-        return redirect(url_for("main.admin_users", error="User ID and new password are required"))
+        toast_error("User ID and new password are required")
+        return redirect(url_for("main.admin_users"))
     if len(new_password) < 6:
-        return redirect(url_for("main.admin_users", error="Password must be at least 6 characters"))
+        toast_error("Password must be at least 6 characters")
+        return redirect(url_for("main.admin_users"))
     data = load_data()
     user = next((u for u in data["users"] if u["id"] == user_id), None)
     if not user:
-        return redirect(url_for("main.admin_users", error="User not found"))
+        toast_error("User not found")
+        return redirect(url_for("main.admin_users"))
     user["password_hash"] = hash_password(new_password)
     save_data(data)
-    return redirect(url_for("main.admin_users", success=f"Password reset for {user['username']}"))
+    toast_success(f"Password reset for {user['username']}")
+    return redirect(url_for("main.admin_users"))
 
 
 @admin_required
@@ -472,12 +494,14 @@ def admin_join_class():
     data = load_data()
     classroom = next((c for c in data["classes"] if c["join_code"] == code), None)
     if not classroom:
-        return redirect(url_for("main.admin_classes", error="Invalid class code"))
+        toast_error("Invalid class code")
+        return redirect(url_for("main.admin_classes"))
     admin_id = session.get("user_id")
     if admin_id not in classroom.get("member_ids", []):
         classroom["member_ids"].append(admin_id)
         save_data(data)
-    return redirect(url_for("main.admin_classes", success=f"Joined {classroom['name']}"))
+    toast_success(f"Joined {classroom['name']}")
+    return redirect(url_for("main.admin_classes"))
 
 
 @admin_required
@@ -489,4 +513,5 @@ def remove_student_from_class():
     if classroom and user_id in classroom.get("member_ids", []):
         classroom["member_ids"] = [uid for uid in classroom["member_ids"] if uid != user_id]
         save_data(data)
-    return redirect(url_for("main.admin_class_detail", class_id=class_id, success="Student removed"))
+    toast_success("Student removed")
+    return redirect(url_for("main.admin_class_detail", class_id=class_id))

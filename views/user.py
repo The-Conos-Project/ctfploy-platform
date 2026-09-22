@@ -14,7 +14,7 @@ from page_templates.dashboard import (
     leaderboard_page,
 )
 from page_templates.auth import change_password_page, reset_password_request_page
-from views.utils import login_required, request_toast_messages
+from views.utils import login_required, request_toast_messages, toast_success, toast_error
 
 
 def _is_expired(inst: dict) -> bool:
@@ -56,7 +56,8 @@ def class_detail(class_id: str):
     data = load_data()
     classroom = next((c for c in data["classes"] if c["id"] == class_id and session["user_id"] in c.get("member_ids", [])), None)
     if not classroom:
-        return redirect(url_for("main.classes", error="Class not found"))
+        toast_error("Class not found")
+        return redirect(url_for("main.classes"))
     challenges = [c for c in data["challenges"] if c["id"] in classroom.get("challenge_ids", [])]
     instances = [i for i in data["instances"] if i["user_id"] == session["user_id"] and i["status"] == "running"]
     return class_detail_page(classroom, challenges, instances, toasts=request_toast_messages())
@@ -98,11 +99,13 @@ def student_challenge_detail(challenge_id: str):
         for c in data["classes"]
     )
     if not allowed:
-        return redirect(url_for("main.dashboard", error="Access denied"))
+        toast_error("Access denied")
+        return redirect(url_for("main.dashboard"))
 
     challenge = next((c for c in data["challenges"] if c["id"] == challenge_id), None)
     if not challenge:
-        return redirect(url_for("main.dashboard", error="Challenge not found"))
+        toast_error("Challenge not found")
+        return redirect(url_for("main.dashboard"))
 
     instance = next(
         (i for i in data["instances"] if i["challenge_id"] == challenge_id and i["user_id"] == user["id"] and i["status"] == "running" and not _is_expired(i)),
@@ -145,11 +148,13 @@ def join_class():
     data = load_data()
     classroom = next((c for c in data["classes"] if c["join_code"] == code), None)
     if not classroom:
-        return redirect(url_for("main.dashboard", error="Invalid class code"))
+        toast_error("Invalid class code")
+        return redirect(url_for("main.dashboard"))
     if session["user_id"] not in classroom["member_ids"]:
         classroom["member_ids"].append(session["user_id"])
         save_data(data)
-    return redirect(url_for("main.dashboard", success=f"Joined {classroom['name']}"))
+    toast_success(f"Joined {classroom['name']}")
+    return redirect(url_for("main.dashboard"))
 
 
 @login_required
@@ -158,15 +163,18 @@ def start_challenge(challenge_id):
     user = get_user_by_id(session["user_id"])
     challenge = next((c for c in data["challenges"] if c["id"] == challenge_id and c["build_status"] == "ready"), None)
     if not challenge:
-        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error="Challenge not found or not ready"))
+        toast_error("Challenge not found or not ready")
+        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id))
 
     allowed = any(challenge_id in classroom.get("challenge_ids", []) and user["id"] in classroom.get("member_ids", []) for classroom in data["classes"])
     if not allowed:
-        return redirect(url_for("main.dashboard", error="Access denied"))
+        toast_error("Access denied")
+        return redirect(url_for("main.dashboard"))
 
     instance, err = create_container(challenge, user["id"])
     if err:
-        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id, error=err))
+        toast_error(err)
+        return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id))
     return redirect(url_for("main.student_challenge_detail", challenge_id=challenge_id))
 
 
@@ -175,7 +183,8 @@ def view_instance(instance_id):
     data = load_data()
     instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
     if not instance:
-        return redirect(url_for("main.dashboard", error="Instance not found"))
+        toast_error("Instance not found")
+        return redirect(url_for("main.dashboard"))
 
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
     if challenge:
@@ -189,7 +198,8 @@ def terminate(instance_id):
     instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
     if instance:
         terminate_instance(instance_id)
-        return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"], success="Lab terminated"))
+        toast_success("Lab terminated")
+        return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"]))
     return redirect(url_for("main.dashboard"))
 
 
@@ -200,8 +210,10 @@ def extend_lab(instance_id):
     if instance and instance.get("status") == "running":
         from docker_ops import extend_instance
         if extend_instance(instance_id):
-            return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"], success="Lab extended by 1 hour"))
-    return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"] if instance else "", error="Could not extend lab"))
+            toast_success("Lab extended by 1 hour")
+            return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"]))
+    toast_error("Could not extend lab")
+    return redirect(url_for("main.student_challenge_detail", challenge_id=instance["challenge_id"] if instance else ""))
 
 
 @login_required
@@ -209,7 +221,8 @@ def submit_flag(instance_id):
     data = load_data()
     instance = next((i for i in data["instances"] if i["id"] == instance_id and i["user_id"] == session["user_id"]), None)
     if not instance:
-        return redirect(url_for("main.dashboard", error="Instance not found"))
+        toast_error("Instance not found")
+        return redirect(url_for("main.dashboard"))
 
     submitted = request.form["flag"].strip()
     challenge = next((c for c in data["challenges"] if c["id"] == instance["challenge_id"]), None)
@@ -350,16 +363,20 @@ def change_password():
         old_password = request.form.get("old_password", "")
         new_password = request.form.get("new_password", "")
         if not old_password or not new_password:
-            return redirect(url_for("main.change_password", error="Both fields are required"))
+            toast_error("Both fields are required")
+            return redirect(url_for("main.change_password"))
         data = load_data()
         user = get_user_by_id(session["user_id"], data=data)
         if not user or not _verify_password(old_password, user["password_hash"]):
-            return redirect(url_for("main.change_password", error="Current password is incorrect"))
+            toast_error("Current password is incorrect")
+            return redirect(url_for("main.change_password"))
         if len(new_password) < 6:
-            return redirect(url_for("main.change_password", error="New password must be at least 6 characters"))
+            toast_error("New password must be at least 6 characters")
+            return redirect(url_for("main.change_password"))
         user["password_hash"] = hash_password(new_password)
         save_data(data)
-        return redirect(url_for("main.dashboard", success="Password updated successfully"))
+        toast_success("Password updated successfully")
+        return redirect(url_for("main.dashboard"))
     return change_password_page(toasts=request_toast_messages())
 
 
@@ -370,6 +387,8 @@ def reset_password_request():
         data = load_data()
         user = next((u for u in data["users"] if u["username"] == username), None)
         if not user:
-            return redirect(url_for("main.reset_password_request", error="Username not found"))
-        return redirect(url_for("main.reset_password_request", success=f"Admin has been notified. Contact your administrator to reset your password."))
-    return reset_password_request_page(error="Username not found" if request.args.get("error") else False)
+            toast_error("Username not found")
+            return redirect(url_for("main.reset_password_request"))
+        toast_success(f"Admin has been notified. Contact your administrator to reset your password.")
+        return redirect(url_for("main.reset_password_request"))
+    return reset_password_request_page()

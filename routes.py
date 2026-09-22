@@ -2,7 +2,16 @@ import os
 from flask import Blueprint
 from config import CHALLENGES_STORE
 from docker_ops import ensure_network
-from views.auth import index, sign_in, register, logout, admin_sign_in, admin_logout
+from views.auth import (
+    index,
+    sign_in,
+    register,
+    logout,
+    admin_sign_in,
+    admin_logout,
+    set_language,
+    legacy_register_redirect,
+)
 from views.user import (
     dashboard,
     classes,
@@ -49,6 +58,8 @@ from views.admin import (
 bp = Blueprint("main", __name__)
 
 bp.add_url_rule("/", "index", index)
+bp.add_url_rule("/lang/<lang_code>", "set_language", set_language)
+bp.add_url_rule("/register", "legacy_register", legacy_register_redirect)
 bp.add_url_rule("/sign-in", "sign_in", sign_in, methods=["GET", "POST"])
 bp.add_url_rule("/sign-up", "register", register, methods=["GET", "POST"])
 bp.add_url_rule("/logout", "logout", logout)
