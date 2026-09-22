@@ -146,7 +146,7 @@ def _published_port(container, internal_port: int) -> Optional[int]:
 
 
 def _wait_for_lab(container, connection_type: str, timeout: int = 30) -> Tuple[bool, str]:
-    """Wait until the lab stays up. A first 'running' reading is not enough —
+    """Wait until the lab stays up. A first 'running' reading is not enough:
     linux-trail's entrypoint still runs setup.sh and can exit a second later.
     """
     deadline = time.time() + timeout
@@ -389,3 +389,57 @@ def cleanup_expired_instances() -> None:
     if len(surviving) != original_count:
         data["instances"] = surviving
         save_data(data)
+
+
+def schedule_platform_update() -> None:
+    """Pull latest images and recreate the stack without killing this request mid-flight.
+
+    The platform container does not have /etc/ctfploy or Compose v2. We start a
+    short-lived helper container that mounts the host compose project + docker.sock
+    and runs the same commands you would on the VPS.
+    """
+    client = get_docker_client()
+    helper_image = os.environ.get("CTFPLOY_UPDATE_IMAGE", "docker:27-cli")
+    compose_dir = os.environ.get("CTFPLOY_COMPOSE_DIR", "/etc/ctfploy")
+
+    try:
+        client.images.pull(helper_image)
+    except Exception as exc:
+        raise RuntimeError(f"Could not pull update helper image {helper_image}: {exc}") from exc
+
+    # Remove a leftover updater if a previous run is still around.
+    for container in client.containers.list(all=True, filters={"name": "ctfploy-updater"}):
+        try:
+            container.remove(force=True)
+        except Exception:
+            pass
+
+    script = (
+        "set -eu; "
+        "echo 'CTFploy update: waiting for admin response to finish...'; "
+        "sleep 3; "
+        f"cd '{compose_dir}'; "
+        "test -f docker-compose.yml || { echo 'Missing docker-compose.yml in compose dir' >&2; exit 1; }; "
+        "echo 'CTFploy update: pulling images...'; "
+        "docker compose pull; "
+        "echo 'CTFploy update: recreating services...'; "
+        "docker compose up -d --force-recreate; "
+        "echo 'CTFploy update: done.'"
+    )
+
+    try:
+        client.containers.run(
+            helper_image,
+            entrypoint=["/bin/sh", "-c"],
+            command=[script],
+            volumes={
+                "/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "rw"},
+                compose_dir: {"bind": compose_dir, "mode": "rw"},
+            },
+            working_dir=compose_dir,
+            name="ctfploy-updater",
+            detach=True,
+            remove=True,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Could not start platform updater: {exc}") from exc

@@ -13,11 +13,10 @@ from flask import redirect, request, Response, url_for
 from config import BUILD_LOGS_STORE, CHALLENGES_STORE
 from data_store import load_data, save_data, get_setting, set_setting, hash_password
 from domain_ops import prepare_domain, issue_certificate, public_ip
-from docker_ops import build_image_thread, build_log_path, terminate_instance
+from docker_ops import build_image_thread, build_log_path, terminate_instance, schedule_platform_update
 from page_templates.templates import (
     admin_challenges_page,
     admin_dashboard_page,
-    admin_update_page,
     build_log_page,
     admin_classes_page,
     admin_class_detail_page,
@@ -364,21 +363,17 @@ def remove_challenge_from_class():
 def admin_update():
     if request.method == "POST":
         try:
-            import subprocess
-            result = subprocess.run(
-                ["bash", "-lc", "cd /etc/ctfploy && docker compose pull && docker compose up -d --force-recreate"],
-                capture_output=True,
-                text=True,
-                check=True,
+            schedule_platform_update()
+            return redirect(
+                url_for(
+                    "main.admin_settings",
+                    success="Update started. The platform will restart in a few seconds — refresh this page shortly.",
+                )
             )
-            return redirect(url_for("main.admin_update", success="Platform updated successfully!"))
-        except subprocess.CalledProcessError as exc:
-            error_message = exc.stderr.strip() or str(exc)
-            return redirect(url_for("main.admin_update", error=f"Update failed: {error_message}"))
         except Exception as exc:
-            return redirect(url_for("main.admin_update", error=f"Update failed: {str(exc)}"))
+            return redirect(url_for("main.admin_settings", error=f"Update failed: {exc}"))
 
-    return admin_update_page(toasts=request_toast_messages())
+    return redirect(url_for("main.admin_settings"))
 
 
 @admin_required
