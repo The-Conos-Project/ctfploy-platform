@@ -43,7 +43,7 @@ def dashboard_page(user, user_classes, active_instances, toasts=None) -> str:
                 </div>
             </div>
             ''')
-        leaderboard_html = '<h1>Leaderboard</h1><p class="muted" style="margin-bottom: 18px;">Your rankings across joined classes.</p>' + ''.join(cards)
+        leaderboard_html = '<h1>Leaderboard</h1><p class="muted" style="margin-bottom: 18px;">Your rankings across joined groups.</p>' + ''.join(cards)
 
     return user_layout(f'''
     <h1>Welcome back, {escape(user['username'])}</h1>
@@ -55,10 +55,10 @@ def dashboard_page(user, user_classes, active_instances, toasts=None) -> str:
 
 def classes_page(classes, toasts=None) -> str:
     items = ''.join(
-        f'''<div style="width:50%; padding:0 6px 12px 0; box-sizing:border-box;"><div class="card" style="margin-bottom:0; height:100%;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;"><div><strong>{escape(classroom['name'])}</strong><div class="small-text">{len(classroom['challenge_ids'])} assigned challenge(s)</div></div><a href="/classes/{classroom['id']}"><button class="secondary">Open class</button></a></div></div></div>'''
+        f'''<div style="width:50%; padding:0 6px 12px 0; box-sizing:border-box;"><div class="card" style="margin-bottom:0; height:100%;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;"><div><strong>{escape(classroom['name'])}</strong><div class="small-text">{len(classroom['challenge_ids'])} assigned challenge(s)</div></div><a href="/classes/{classroom['id']}"><button class="secondary">Open group</button></a></div></div></div>'''
         for classroom in classes
-    ) or '<div style="width:100%;">No classes joined yet.</div>'
-    return user_layout(f'''<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:18px;"><h1 style="margin:0;">My classes</h1><button class="secondary" onclick="document.getElementById('join-modal').style.display='flex'" style="display:inline-flex; align-items:center; gap:6px; font-family:inherit;">{icon("plus")} Join Class</button></div><p class="muted" style="margin-bottom:18px;">Open a class to view only its assigned challenges.</p><div id="join-modal" class="modal" onclick="if(event.target===this)this.style.display='none'"><div class="modal-content" style="width:90%; max-width:480px;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;"><h3 style="margin:0;">Join Class</h3><button class="modal-close" onclick="document.getElementById('join-modal').style.display='none'">{icon("circle-x")}</button></div><form method="post" action="/user/join-class"><input name="code" placeholder="CLASS-ABC123" required style="margin-bottom:12px; font-family:inherit;"><button type="submit" style="font-family:inherit;">Join class</button></form></div></div><div style="display:flex; flex-wrap:wrap; margin:0 -6px;">{items}</div>''', active='users', toasts=toasts)
+    ) or '<div style="width:100%;">No groups joined yet.</div>'
+    return user_layout(f'''<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:18px;"><h1 style="margin:0;">My groups</h1><button class="secondary" onclick="document.getElementById('join-modal').style.display='flex'" style="display:inline-flex; align-items:center; gap:6px; font-family:inherit;">{icon("plus")} Join group</button></div><p class="muted" style="margin-bottom:18px;">Open a group to view only its assigned challenges.</p><div id="join-modal" class="modal" onclick="if(event.target===this)this.style.display='none'"><div class="modal-content" style="width:90%; max-width:480px;"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;"><h3 style="margin:0;">Join group</h3><button class="modal-close" onclick="document.getElementById('join-modal').style.display='none'">{icon("circle-x")}</button></div><form method="post" action="/user/join-class"><input name="code" placeholder="CLASS-ABC123" required style="margin-bottom:12px; font-family:inherit;"><button type="submit" style="font-family:inherit;">Join class</button></form></div></div><div style="display:flex; flex-wrap:wrap; margin:0 -6px;">{items}</div>''', active='users', toasts=toasts)
 
 
 def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
@@ -81,7 +81,7 @@ def class_detail_page(classroom, challenges, instances, toasts=None) -> str:
             badge = '<span class="status-badge status-failed">failed</span>'
             action = f'<a href="/challenges/{challenge["id"]}"><button class="secondary">Open challenge</button></a>'
         rows += f'''<li><div class="row"><div><strong>{escape(challenge['display_name'])}</strong><div class="small-text">{escape(challenge.get('description', ''))}</div><div class="small-text" style="color:#ffd77a; font-weight:600;">{total_points(challenge)} points</div>{badge}</div>{action}</div></li>'''
-    return user_layout(f'''<a href="/classes" class="small-text">{icon("arrow-left")} All classes</a><h1>{escape(classroom['name'])}</h1><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users', toasts=toasts)
+    return user_layout(f'''<a href="/classes" class="small-text">{icon("arrow-left")} All groups</a><h1>{escape(classroom['name'])}</h1><section class="card"><h3>Assigned challenges</h3><ul class="list">{rows or '<li>No challenges have been assigned yet.</li>'}</ul></section>''', active='users', toasts=toasts)
 
 
 def student_challenges_page(challenges, instances, solved_challenge_ids, toasts=None) -> str:
@@ -104,9 +104,9 @@ def student_challenges_page(challenges, instances, solved_challenge_ids, toasts=
 
     return user_layout(f'''
     <h1>All Assigned Challenges</h1>
-    <p class="muted">Access and solve challenges assigned to you across all joined classes.</p>
+    <p class="muted">Access and solve challenges assigned to you across all joined groups.</p>
     <section class="card">
-        <ul class="list">{rows or '<li>No challenges have been assigned yet. Join a classroom first!</li>'}</ul>
+        <ul class="list">{rows or '<li>No challenges have been assigned yet. Join a group first!</li>'}</ul>
     </section>
     ''', active='users', toasts=toasts)
 
@@ -312,7 +312,7 @@ def student_challenge_detail_page(challenge, inst, host, msg, attempts_remaining
         '''
 
     return user_layout(f'''
-    <a href="/classes" class="small-text">{icon("arrow-left")} Back to My Classes</a>
+    <a href="/classes" class="small-text">{icon("arrow-left")} Back to My groups</a>
     <div style="margin-top: 12px; margin-bottom: 24px;">
         <h1>{escape(challenge['display_name'])}</h1>
         <p class="muted" style="margin-top: 6px; font-size: 16px;">{escape(challenge.get('description', ''))}</p>
@@ -395,10 +395,10 @@ def leaderboard_page(grouped_entries, class_names=None) -> str:
         '''
 
     if not sections:
-        sections = '<section class="card"><p class="muted">No leaderboard data yet. Join a class and start solving challenges.</p></section>'
+        sections = '<section class="card"><p class="muted">No leaderboard data yet. Join a group and start solving challenges.</p></section>'
 
     return user_layout(f'''
     <h1>Leaderboard</h1>
-    <p class="muted">Rankings by class. Sorted by points, then challenges solved.</p>
+    <p class="muted">Rankings by group. Sorted by points, then challenges solved.</p>
     {sections}
     ''', active='leaderboard')
